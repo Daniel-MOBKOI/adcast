@@ -1,0 +1,113 @@
+.layout { display: grid; grid-template-columns: 280px 1fr; grid-template-rows: 1fr auto; gap: 0; min-height: 560px; }
+
+.sidebar { padding: 24px 22px; border-right: 1px solid #f0f0f0; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+
+.centre { background: #f7f7f7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px 24px; }
+
+.fieldGroup { display: flex; flex-direction: column; }
+.fieldHeader { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.fieldLabel { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #bbb; }
+.fieldHint { font-size: 11px; color: #aaa; line-height: 1.55; margin-top: 4px; }
+
+.iconBtn { width: 24px; height: 24px; border-radius: 6px; background: #f5f5f5; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #aaa; font-size: 13px; transition: all 0.12s; }
+.iconBtn:hover:not(:disabled) { background: #ebebeb; color: #555; }
+.iconBtn:disabled { opacity: 0.3; cursor: default; }
+
+.input { width: 100%; box-sizing: border-box; border: 1px solid #e8e8e8; border-radius: 8px; padding: 9px 11px; font-size: 12px; color: #111; font-family: 'Monaco', 'Menlo', monospace; outline: none; background: #fafafa; transition: border-color 0.15s; }
+.input:focus { border-color: #0a0a0a; background: #fff; }
+.input::placeholder { color: #ccc; font-family: inherit; }
+.input:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.divider { height: 1px; background: #f0f0f0; flex-shrink: 0; }
+
+.infoBox { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 11px 13px; font-size: 11px; color: #1e40af; line-height: 1.65; }
+
+.clipCard { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 14px; }
+.clipLabel { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #16a34a; margin-bottom: 8px; }
+
+.metaList { display: flex; flex-direction: column; gap: 5px; }
+.metaRow { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.metaKey { font-size: 11px; color: #aaa; flex-shrink: 0; }
+.metaVal { font-size: 11px; color: #333; font-weight: 500; text-align: right; }
+
+.textBtn { background: none; border: none; font-size: 11px; color: #2563eb; cursor: pointer; padding: 0; margin-top: 6px; font-family: inherit; }
+.textBtn:hover { text-decoration: underline; }
+
+.errorMsg { font-size: 12px; color: #dc2626; }
+
+/* Publisher grid */
+.pubGrid { display: flex; flex-direction: column; gap: 7px; }
+.pubTile { background: #fff; border: 1px solid #e8e8e8; border-radius: 8px; overflow: hidden; cursor: pointer; position: relative; transition: border-color 0.12s; }
+.pubTile:hover { border-color: #aaa; }
+.pubTileSelected { border: 2px solid #2563eb !important; }
+.pubTileUpload { cursor: pointer; }
+.pubTileImg { height: 56px; overflow: hidden; width: 100%; }
+.pubTileImg img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.pubTileLbl { padding: 6px 9px; font-size: 11px; color: #555; font-weight: 500; }
+.pubTileCheck { position: absolute; top: 5px; right: 5px; width: 16px; height: 16px; border-radius: 50%; background: #2563eb; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 9px; font-weight: 700; }
+
+/* Toolbar above phone */
+.toolbar { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 6px 10px; }
+.tbtn { width: 34px; height: 34px; border-radius: 7px; background: none; border: none; color: #bbb; font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.12s; }
+.tbtn:hover { background: #f5f5f5; color: #333; }
+.tbtnRec { background: #ef4444 !important; color: #fff !important; border-radius: 50% !important; }
+.tbtnRec:hover { background: #dc2626 !important; }
+.tbtnStop { background: #111 !important; color: #fff !important; }
+.tdiv { width: 1px; height: 20px; background: #e8e8e8; }
+
+.centreHint { font-size: 11px; color: #bbb; text-align: center; }
+
+/* Ad iframe inside phone */
+.iframeWrap { width: 100%; height: 100%; position: relative; background: #000; overflow: hidden; }
+.adIframe {
+  width: 390px;
+  height: 844px;
+  border: 0;
+  display: block;
+  transform-origin: top left;
+  transform: scale(0.638);
+}
+.recBadge { position: absolute; top: 24px; right: 10px; background: rgba(239,68,68,0.92); border-radius: 99px; padding: 3px 9px; display: flex; align-items: center; gap: 4px; z-index: 20; font-size: 9px; color: #fff; font-weight: 700; font-family: monospace; }
+.recDot { width: 6px; height: 6px; border-radius: 50%; background: #fff; animation: blink 1s infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.3} }
+
+.emptyScreen { width: 100%; height: 100%; background: #0d1117; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.emptyLabel { font-size: 11px; color: rgba(255,255,255,0.25); text-align: center; padding: 0 20px; }
+
+/* Export screens inside phone */
+.procScreen { width: 100%; height: 100%; background: #f9f9f9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.spinner { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #e8e8e8; border-top-color: #0a0a0a; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.procLabel { font-size: 11px; color: #888; text-align: center; line-height: 1.6; }
+.procMiniBar { width: 80px; height: 3px; background: #e8e8e8; border-radius: 99px; overflow: hidden; }
+.procMiniFill { height: 100%; background: #0a0a0a; border-radius: 99px; transition: width 0.5s ease; }
+.procPct { font-size: 11px; color: #bbb; font-variant-numeric: tabular-nums; }
+
+.doneScreen { width: 100%; height: 100%; background: #111; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; position: relative; }
+.doneBadge { position: absolute; top: 12px; right: 12px; background: #16a34a; border-radius: 99px; padding: 3px 9px; font-size: 8px; color: #fff; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+.doneMeta { font-size: 9px; color: rgba(255,255,255,0.3); font-family: monospace; text-align: center; line-height: 1.6; }
+
+.errScreen { width: 100%; height: 100%; background: #fff0f0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; }
+.errLabel { font-size: 12px; font-weight: 600; color: #dc2626; }
+.errMsg { font-size: 10px; color: #888; text-align: center; line-height: 1.5; }
+
+/* Status */
+.statusRow { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+.statusDot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
+.dotWorking { background: #2563eb; animation: pulse 1.2s infinite; }
+.dotDone { background: #22c55e; }
+.dotErr { background: #ef4444; }
+@keyframes pulse { 0%,100%{opacity:1}50%{opacity:.4} }
+.statusText { font-size: 12px; color: #555; }
+.progressTrack { height: 4px; background: #f0f0f0; border-radius: 99px; overflow: hidden; }
+.progressFill { height: 100%; border-radius: 99px; transition: width 0.4s ease; }
+
+/* Nav bar */
+.navBar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; background: #fff; border-top: 1px solid #f0f0f0; padding: 12px 22px; }
+.navHint { font-size: 12px; color: #bbb; }
+.btnPrimary { background: #0a0a0a; color: #fff; border: none; border-radius: 8px; padding: 9px 22px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: background 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+.btnPrimary:hover:not(:disabled) { background: #333; }
+.btnPrimary:disabled { opacity: 0.35; cursor: default; }
+.btnSecondary { background: #fff; color: #555; border: 1px solid #e0e0e0; border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: background 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+.btnSecondary:hover:not(:disabled) { background: #f5f5f5; }
+.btnSecondary:disabled { opacity: 0.4; cursor: default; }

@@ -1,27 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRecorder } from '../hooks/useRecorder.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
-import styles from './Step1Record.module.css';
+import styles from './StepLayout.module.css';
 
 function fmtTime(s) {
   const m = Math.floor(s / 60);
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-// Route the Celtra URL through our server-side proxy which adds a mobile user agent
-function proxyUrl(celtraUrl) {
-  if (!celtraUrl) return '';
-  return '/celtra-proxy?url=' + encodeURIComponent(celtraUrl);
+function proxyUrl(url) {
+  if (!url) return '';
+  return '/celtra-proxy?url=' + encodeURIComponent(url);
 }
 
 export default function Step1Record({ clipBlob, onClip, onNext }) {
   const [celtraUrl, setCeltraUrl] = useState('');
-  const [adLoaded, setAdLoaded] = useState(false);
   const { state, duration, error, blob, start, stop, reset } = useRecorder();
 
-  function handleLoad() {
-    if (celtraUrl.trim()) setAdLoaded(true);
-  }
+  // Auto-load as soon as a URL is pasted
+  const iframeUrl = celtraUrl.trim() ? proxyUrl(celtraUrl.trim()) : null;
 
   function handleRecordToggle() {
     if (state === 'idle' || state === 'done' || state === 'error') {
@@ -36,93 +33,102 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
   }
 
   const clipReady = !!clipBlob || (state === 'done' && blob);
+  const isRecording = state === 'recording';
 
   return (
     <div className={styles.layout}>
-      <div className={styles.left}>
-        <div className={styles.card}>
-          <div className={styles.label}>Celtra preview link</div>
+      <div className={styles.sidebar}>
+
+        <div className={styles.fieldGroup}>
+          <div className={styles.fieldHeader}>
+            <span className={styles.fieldLabel}>Celtra preview link</span>
+            <button
+              className={styles.iconBtn}
+              onClick={() => { const u = celtraUrl; setCeltraUrl(''); setTimeout(() => setCeltraUrl(u), 50); }}
+              title="Reload ad"
+              aria-label="Reload ad"
+              disabled={!celtraUrl.trim()}
+            >
+              <i className="ti ti-refresh" aria-hidden="true" />
+            </button>
+          </div>
           <input
             className={styles.input}
             placeholder="https://mobkoi-uk.celtra.com/preview/…"
             value={celtraUrl}
-            onChange={e => { setCeltraUrl(e.target.value); setAdLoaded(false); }}
-            onKeyDown={e => e.key === 'Enter' && handleLoad()}
+            onChange={e => setCeltraUrl(e.target.value)}
           />
-          <p className={styles.hint}>Paste any Celtra preview URL — renders in mobile mode automatically.</p>
         </div>
-
-        <button className={styles.btnSecondary} onClick={handleLoad} disabled={!celtraUrl.trim()}>
-          ▶ Load ad
-        </button>
 
         <div className={styles.divider} />
 
-        <div className={styles.card}>
-          <div className={styles.label}>Status</div>
-          <div className={styles.statusRow}>
-            <div className={`${styles.dot} ${state === 'recording' ? styles.dotRec : clipReady ? styles.dotReady : ''}`} />
-            <span className={styles.statusText}>
-              {state === 'idle' && !clipReady && 'Idle — load the ad to begin'}
-              {state === 'requesting' && 'Waiting for browser permission…'}
-              {state === 'recording' && `Recording ${fmtTime(duration)}`}
-              {(state === 'done' || clipReady) && `Clip ready (${fmtTime(duration)})`}
-              {state === 'error' && 'Error — see below'}
-            </span>
+        {!clipReady && (
+          <div className={styles.infoBox}>
+            Interact with the ad in the phone frame — swipe between pages, tap elements and play video. When you're ready, hit the record button to capture your session.
           </div>
-          <div className={styles.statRow}>
-            <div className={styles.stat}>
-              <div className={styles.statLabel}>Duration</div>
-              <div className={styles.statValue} style={{ color: duration ? '#111' : '#bbb' }}>
-                {duration ? fmtTime(duration) : '—'}
+        )}
+
+        {clipReady && (
+          <>
+            <div className={styles.clipCard}>
+              <div className={styles.clipLabel}>Clip ready</div>
+              <div className={styles.metaList}>
+                <div className={styles.metaRow}>
+                  <span className={styles.metaKey}>Duration</span>
+                  <span className={styles.metaVal}>{fmtTime(duration)}</span>
+                </div>
+                <div className={styles.metaRow}>
+                  <span className={styles.metaKey}>Format</span>
+                  <span className={styles.metaVal}>WebM</span>
+                </div>
               </div>
+              <button className={styles.textBtn} onClick={reset}>Re-record</button>
             </div>
-            <div className={styles.stat}>
-              <div className={styles.statLabel}>Format</div>
-              <div className={styles.statValue} style={{ color: '#bbb', fontSize: 12 }}>WebM</div>
+            <div className={styles.infoBox}>
+              Clip captured. Continue to Step 2 to choose your publisher page.
             </div>
-          </div>
-        </div>
+          </>
+        )}
 
-        {error && <p className={styles.error}>{error}</p>}
-
-        <div className={styles.permBox}>
-          When you click <strong>Record</strong>, your browser will ask to share this tab.
-          Select <em>"This Tab"</em> and click Share — MOBKOI only captures the ad preview.
-        </div>
+        {error && <p className={styles.errorMsg}>{error}</p>}
       </div>
 
       <div className={styles.centre}>
         <div className={styles.toolbar}>
-          <button className={styles.tbtn} onClick={handleLoad} title="Reload ad" aria-label="Reload ad">↺</button>
-          <div className={styles.tdiv} />
-          <div className={styles.dots}>
-            <div className={`${styles.dot2} ${styles.dotActive}`} />
-            <div className={styles.dot2} />
-            <div className={styles.dot2} />
-          </div>
+          <button
+            className={styles.tbtn}
+            onClick={() => { const u = celtraUrl; setCeltraUrl(''); setTimeout(() => setCeltraUrl(u), 50); }}
+            title="Reload ad"
+            aria-label="Reload ad"
+          >
+            <i className="ti ti-refresh" aria-hidden="true" />
+          </button>
           <div className={styles.tdiv} />
           <button
-            className={`${styles.tbtn} ${state === 'recording' ? styles.tbtnStop : styles.tbtnRec}`}
+            className={`${styles.tbtn} ${isRecording ? styles.tbtnStop : styles.tbtnRec}`}
             onClick={handleRecordToggle}
-            aria-label={state === 'recording' ? 'Stop recording' : 'Start recording'}
-            title={state === 'recording' ? 'Stop recording' : 'Start recording'}
+            aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+            title={isRecording ? 'Stop recording' : 'Start recording'}
           >
-            {state === 'recording' ? '■' : '●'}
+            {isRecording
+              ? <i className="ti ti-player-stop" aria-hidden="true" />
+              : <i className="ti ti-circle-dot" aria-hidden="true" />
+            }
           </button>
         </div>
 
         <IPhoneFrame>
-          {adLoaded && celtraUrl ? (
+          {iframeUrl ? (
             <div className={styles.iframeWrap}>
-              {state === 'recording' && (
+              {isRecording && (
                 <div className={styles.recBadge}>
                   <span className={styles.recDot} />
                   {fmtTime(duration)}
                 </div>
               )}
               <iframe
-                src={proxyUrl(celtraUrl)}
+                key={iframeUrl}
+                src={iframeUrl}
                 className={styles.adIframe}
                 scrolling="no"
                 frameBorder="0"
@@ -132,43 +138,23 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
             </div>
           ) : (
             <div className={styles.emptyScreen}>
-              <div className={styles.emptyIcon}>▶</div>
-              <div className={styles.emptyLabel}>
-                {celtraUrl ? 'Click "Load ad" to preview' : 'Paste a Celtra link to begin'}
-              </div>
+              <i className="ti ti-link" aria-hidden="true" style={{ fontSize: 28, color: 'rgba(255,255,255,0.12)' }} />
+              <div className={styles.emptyLabel}>Paste a Celtra link to begin</div>
             </div>
           )}
         </IPhoneFrame>
 
-        <p className={styles.hint2}>
-          {state === 'recording'
-            ? 'Interact with the ad — swipe, tap, play. Click ■ when done.'
+        <p className={styles.centreHint}>
+          {isRecording
+            ? `Recording ${fmtTime(duration)} · swipe, tap, play · hit ■ to stop`
             : clipReady
-            ? 'Clip ready. Proceed to Step 2.'
-            : 'Interact with the ad live, then hit ● to record'}
+            ? 'Clip ready — continue to Step 2'
+            : 'Interact with the ad · hit ● to record'}
         </p>
       </div>
 
-      <div className={styles.right}>
-        <div className={styles.card}>
-          <div className={styles.label}>Ad format</div>
-          <div className={styles.metaList}>
-            <div className={styles.metaRow}><span className={styles.metaKey}>Type</span><span className={styles.metaVal}>All-in-One</span></div>
-            <div className={styles.metaRow}><span className={styles.metaKey}>Size</span><span className={styles.metaVal}>500 × 950</span></div>
-            <div className={styles.metaRow}><span className={styles.metaKey}>Pages</span><span className={styles.metaVal}>3</span></div>
-          </div>
-        </div>
-        {clipReady && (
-          <div className={styles.card} style={{ borderColor: '#bbf7d0' }}>
-            <div className={styles.label} style={{ color: '#16a34a' }}>Clip ready</div>
-            <p className={styles.hint}>Recording captured. You can re-record or continue to Step 2.</p>
-            <button className={styles.btnTextSm} onClick={reset}>Re-record</button>
-          </div>
-        )}
-      </div>
-
       <div className={styles.navBar}>
-        <span />
+        <span className={styles.navHint}>Step 1 of 3</span>
         <button className={styles.btnPrimary} onClick={onNext} disabled={!clipReady}>
           Next step →
         </button>

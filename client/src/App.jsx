@@ -10,15 +10,12 @@ import styles from './App.module.css';
 
 export default function App() {
   const [authed, setAuthed] = useState(
-    !!sessionStorage.getItem('adcast_token') ||
-    !import.meta.env.VITE_REQUIRE_AUTH // skip auth in dev if env var not set
+    !!sessionStorage.getItem('adcast_token') || !import.meta.env.VITE_REQUIRE_AUTH
   );
   const [step, setStep] = useState(1);
-
-  // Shared state passed between steps
   const [clipBlob, setClipBlob] = useState(null);
   const [clipDuration, setClipDuration] = useState(0);
-  const [publisher, setPublisher] = useState(null); // { id, label, url, filePath }
+  const [publisher, setPublisher] = useState(null);
   const [jobId, setJobId] = useState(null);
 
   if (!authed) {
@@ -31,26 +28,24 @@ export default function App() {
     setStep(n);
   }
 
+  const titles = ['Record your ad', 'Choose publisher context', 'Export MP4'];
+  const subs = [
+    'Load a Celtra preview link, interact with the ad, then record.',
+    'Pick a publisher page. Your ad will be composited into it.',
+    'Your video is rendering. Download when ready.'
+  ];
+
   return (
     <div className={styles.app}>
       <Nav />
-      <div className={styles.body}>
-        <div className={styles.header}>
-          <div>
-            <h1 className={styles.title}>
-              {step === 1 && 'Record your ad'}
-              {step === 2 && 'Choose publisher context'}
-              {step === 3 && 'Export MP4'}
-            </h1>
-            <p className={styles.sub}>
-              {step === 1 && 'Load a Celtra preview link, interact with the ad, then record.'}
-              {step === 2 && 'Pick a publisher page. Your ad will be composited into it.'}
-              {step === 3 && 'Your video is rendering. Download when ready.'}
-            </p>
-          </div>
-          <StepBar step={step} onStep={goStep} clipReady={!!clipBlob} publisherReady={!!publisher} />
+      <div className={styles.pageHeader}>
+        <div>
+          <h1 className={styles.title}>{titles[step - 1]}</h1>
+          <p className={styles.sub}>{subs[step - 1]}</p>
         </div>
-
+        <StepBar step={step} onStep={goStep} clipReady={!!clipBlob} publisherReady={!!publisher} />
+      </div>
+      <div className={styles.card}>
         {step === 1 && (
           <Step1Record
             clipBlob={clipBlob}

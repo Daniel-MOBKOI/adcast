@@ -1,28 +1,34 @@
-.phone { position: relative; width: 218px; height: 466px; flex-shrink: 0; }
-
-.shell {
-  position: absolute; inset: 0;
-  border-radius: 38px;
-  border: 8px solid #1a1a1a;
-  background: #111;
-  overflow: hidden;
+/* Outer container — sized to the frame image at display size */
+.outer {
+  position: relative;
+  width: 260px;      /* display width — scale as needed */
+  height: 533px;     /* 260 * (1609/785) = 533 */
+  flex-shrink: 0;
 }
 
-.notch {
-  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
-  width: 66px; height: 22px;
-  background: #1a1a1a;
-  border-radius: 0 0 14px 14px;
-  z-index: 10;
-}
-
+/* Screen area — positioned to exactly match the transparent screen
+   region of the PNG frame image.
+   Image screen: x=18/785=2.29%, y=15/1609=0.93%, w=752/785=95.8%, h=1582/1609=98.3% */
 .screen {
-  position: absolute; inset: 8px;
-  border-radius: 30px;
+  position: absolute;
+  left: 2.3%;
+  top: 0.93%;
+  width: 95.8%;
+  height: 98.3%;
   overflow: hidden;
+  border-radius: 11.5%;  /* matches the rounded corners of the real frame */
   background: #000;
+  z-index: 0;
 }
 
-.volTop { position: absolute; left: -10px; top: 78px; height: 28px; width: 4px; border-radius: 2px; background: #333; }
-.volBot { position: absolute; left: -10px; top: 116px; height: 28px; width: 4px; border-radius: 2px; background: #333; }
-.pwr { position: absolute; right: -10px; top: 96px; height: 44px; width: 4px; border-radius: 2px; background: #333; }
+/* Frame PNG — sits on top, pointer-events:none so clicks pass through */
+.frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  z-index: 2;
+  user-select: none;
+}
