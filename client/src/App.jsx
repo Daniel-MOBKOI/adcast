@@ -9,9 +9,11 @@ import Login from './components/Login.jsx';
 import styles from './App.module.css';
 
 export default function App() {
-  const [authed, setAuthed] = useState(
-    !!sessionStorage.getItem('adcast_token') || !import.meta.env.VITE_REQUIRE_AUTH
-  );
+  // Require a stored token. (Login validates the team password against the
+  // server and stores it as the token.) Without this, the app would skip login,
+  // send no token, and every /api call would 401 — which the fetch wrapper turns
+  // into a page reload, bouncing the user back to step 1.
+  const [authed, setAuthed] = useState(!!sessionStorage.getItem('adcast_token'));
   const [step, setStep] = useState(1);
   const [clipBlob, setClipBlob] = useState(null);
   const [clipDuration, setClipDuration] = useState(0);
