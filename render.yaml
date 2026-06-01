@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: adcast
+    runtime: node
+    region: frankfurt
+    plan: standard
+
+    buildCommand: |
+      npm install
+      npm install --prefix server
+      npm install --prefix client
+      npm run build --prefix client
+      cd server && npx playwright install --with-deps chromium
+
+    startCommand: npm start
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: ADCAST_PASSWORD
+        sync: false   # Set this in the Render dashboard — never commit it
+
+    # Persistent disk so uploaded publisher screenshots survive deploys
+    disk:
+      name: adcast-data
+      mountPath: /data
+      sizeGB: 5

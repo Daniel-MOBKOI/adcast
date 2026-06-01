@@ -1,0 +1,28 @@
+.phone { position: relative; width: 188px; height: 400px; flex-shrink: 0; }
+
+.shell {
+  position: absolute; inset: 0;
+  border-radius: 34px;
+  border: 7px solid #1a1a1a;
+  background: #111;
+  overflow: hidden;
+}
+
+.notch {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 60px; height: 20px;
+  background: #1a1a1a;
+  border-radius: 0 0 14px 14px;
+  z-index: 10;
+}
+
+.screen {
+  position: absolute; inset: 7px;
+  border-radius: 27px;
+  overflow: hidden;
+  background: #000;
+}
+
+.volTop { position: absolute; left: -9px; top: 72px; height: 26px; width: 3px; border-radius: 2px; background: #333; }
+.volBot { position: absolute; left: -9px; top: 108px; height: 26px; width: 3px; border-radius: 2px; background: #333; }
+.pwr { position: absolute; right: -9px; top: 88px; height: 40px; width: 3px; border-radius: 2px; background: #333; }
