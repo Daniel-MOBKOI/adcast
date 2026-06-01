@@ -16,7 +16,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
-// Seeded publisher library — edit this list to add/rename built-ins
+// Seeded publisher library — add entries here to add built-in publisher pages
 const BUILTIN = [
   { id: 'cnt-1', label: "Condé Nast Traveler — Las Vegas", file: 'conde-nast-traveler-1.jpg' },
   { id: 'cnt-2', label: "Condé Nast Traveler — Fontainebleau", file: 'conde-nast-traveler-2.jpg' },
@@ -30,7 +30,6 @@ router.get('/', (_req, res) => {
     id: p.id,
     label: p.label,
     url: `/publishers/${p.file}`,
-    filePath: path.join(BUILTIN_DIR, p.file),
     source: 'builtin'
   }));
 
@@ -41,7 +40,6 @@ router.get('/', (_req, res) => {
           id: 'upload-' + f,
           label: path.basename(f, path.extname(f)),
           url: `/uploads/${f}`,
-          filePath: path.join(UPLOAD_DIR, f),
           source: 'upload'
         }))
     : [];
@@ -56,9 +54,21 @@ router.post('/upload', upload.single('screenshot'), (req, res) => {
     id: 'upload-' + req.file.filename,
     label: req.body.label || req.file.originalname,
     url: `/uploads/${req.file.filename}`,
-    filePath: path.join(UPLOAD_DIR, req.file.filename),
     source: 'upload'
   });
 });
 
 export default router;
+
+// Exported helper — used by jobs route to resolve a publisher ID to a disk path
+// without trusting any client-supplied path
+export function resolvePublisherPath(id) {
+  const builtin = BUILTIN.find(p => p.id === id);
+  if (builtin) return path.join(BUILTIN_DIR, builtin.file);
+
+  // Uploaded publishers have id = 'upload-<filename>'
+  const filename = id.startsWith('upload-') ? id.slice('upload-'.length) : null;
+  if (!filename) return null;
+  const uploadPath = path.join(UPLOAD_DIR, filename);
+  return fs.existsSync(uploadPath) ? uploadPath : null;
+}

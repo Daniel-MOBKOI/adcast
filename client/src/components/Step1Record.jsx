@@ -8,6 +8,19 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
+// Force Celtra to render in phone/mobile mode by ensuring the override param is present
+function mobileCeltraUrl(url) {
+  if (!url) return url;
+  // Celtra uses a hash-based override: #overrides.deviceInfo.deviceType=Phone
+  // Strip any existing deviceType override then re-add it
+  const [base, hash] = url.split('#');
+  const hashParams = (hash || '')
+    .split('&')
+    .filter(p => !p.includes('deviceInfo.deviceType'));
+  hashParams.push('overrides.deviceInfo.deviceType=Phone');
+  return base + '#' + hashParams.join('&');
+}
+
 export default function Step1Record({ clipBlob, onClip, onNext }) {
   const [celtraUrl, setCeltraUrl] = useState('');
   const [adLoaded, setAdLoaded] = useState(false);
@@ -44,7 +57,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
             onChange={e => { setCeltraUrl(e.target.value); setAdLoaded(false); }}
             onKeyDown={e => e.key === 'Enter' && handleLoad()}
           />
-          <p className={styles.hint}>Paste any Celtra preview URL — the ad loads live in the frame.</p>
+          <p className={styles.hint}>Paste any Celtra preview URL — loads in mobile mode automatically.</p>
         </div>
 
         <button className={styles.btnSecondary} onClick={handleLoad} disabled={!celtraUrl.trim()}>
@@ -117,11 +130,11 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
                 </div>
               )}
               <iframe
-                src={celtraUrl}
+                src={mobileCeltraUrl(celtraUrl)}
                 className={styles.adIframe}
                 scrolling="no"
                 frameBorder="0"
-                allow="autoplay; fullscreen"
+                allow="autoplay; fullscreen; accelerometer; gyroscope"
                 title="Celtra ad preview"
               />
             </div>

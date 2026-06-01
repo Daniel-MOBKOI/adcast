@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { v4 as uuid } from 'uuid';
 import { runCompositor } from '../compositor.mjs';
+import { resolvePublisherPath } from './publishers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const JOBS_DIR = path.join(__dirname, '..', '..', 'jobs');
@@ -21,12 +22,16 @@ const jobs = new Map();
 
 const router = express.Router();
 
-// POST /api/jobs  — multipart: clip (webm), publisherId, publisherPath
+// POST /api/jobs  — multipart: clip (webm), publisherId, publisherLabel
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
-  const { publisherPath, publisherLabel } = req.body;
-  if (!publisherPath) return res.status(400).json({ error: 'publisherPath required' });
+  const { publisherId, publisherLabel } = req.body;
+  if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
+
+  // Look up publisher file path server-side by ID — never trust a client-supplied path
+  const publisherPath = resolvePublisherPath(publisherId);
+  if (!publisherPath) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
   const jobId = uuid();
   const outPath = path.join(JOBS_DIR, jobId + '.mp4');
@@ -47,7 +52,6 @@ router.post('/', upload.single('clip'), async (req, res) => {
     .then(() => {
       const job = jobs.get(jobId);
       if (job) { job.status = 'done'; job.progress = 100; }
-      // Clean up input clip
       fs.rmSync(req.file.path, { force: true });
     })
     .catch(err => {

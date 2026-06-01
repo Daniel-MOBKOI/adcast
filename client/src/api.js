@@ -39,18 +39,18 @@ export async function uploadPublisher(file, label) {
   return res.json();
 }
 
-export async function createJob({ clipBlob, publisherPath, publisherLabel }) {
+export async function createJob({ clipBlob, publisherId, publisherLabel }) {
   const fd = new FormData();
   fd.append('clip', clipBlob, 'recording.webm');
-  fd.append('publisherPath', publisherPath);
+  fd.append('publisherId', publisherId);
   fd.append('publisherLabel', publisherLabel || '');
   const res = await apiFetch('/jobs', { method: 'POST', body: fd });
-  return res.json(); // { jobId }
+  return res.json();
 }
 
 export async function pollJob(jobId) {
   const res = await apiFetch(`/jobs/${jobId}`);
-  return res.json(); // { status, progress, message, error }
+  return res.json();
 }
 
 export function downloadUrl(jobId) {

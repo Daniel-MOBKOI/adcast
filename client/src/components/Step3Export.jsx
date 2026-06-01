@@ -30,7 +30,7 @@ export default function Step3Export({ clipBlob, clipDuration, publisher, jobId, 
     try {
       const { jobId: id, error } = await createJob({
         clipBlob,
-        publisherPath: publisher.filePath,
+        publisherId: publisher.id,
         publisherLabel: publisher.label
       });
       if (error) throw new Error(error);
@@ -89,11 +89,7 @@ export default function Step3Export({ clipBlob, clipDuration, publisher, jobId, 
         <div className={styles.divider} />
 
         {isDone && jobId && (
-          <a
-            href={downloadUrl(jobId)}
-            className={styles.btnDownload}
-            download="adcast.mp4"
-          >
+          <a href={downloadUrl(jobId)} className={styles.btnDownload} download="adcast.mp4">
             ↓ Download MP4
           </a>
         )}
