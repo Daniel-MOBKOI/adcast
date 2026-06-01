@@ -13,6 +13,14 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { chromium as pw } from 'playwright';
+import ffmpegStatic from 'ffmpeg-static';
+import ffprobeStatic from 'ffprobe-static';
+
+// Bundled, self-contained binaries — no system ffmpeg/ffprobe needed on Render.
+// (Playwright's own bundled ffmpeg, used by recordVideo, is installed separately
+// via `npx playwright install ffmpeg` in the Render build command.)
+const FFMPEG = ffmpegStatic || 'ffmpeg';
+const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,7 +52,7 @@ const run = (cmd, args) => new Promise((res, rej) =>
     e ? rej(new Error(se || e.message)) : res(o)));
 
 const probeDur = async f => parseFloat(
-  (await run('ffprobe', ['-v','error','-show_entries','format=duration',
+  (await run(FFPROBE, ['-v','error','-show_entries','format=duration',
     '-of','default=nw=1:nk=1', f])).trim());
 
 async function launchBrowser() {
@@ -214,7 +222,7 @@ export async function runCompositor({ clipPath, publisherPath, outPath, onProgre
   onProgress(88, 'Encoding MP4…');
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  await run('ffmpeg', [
+  await run(FFMPEG, [
     '-y',
     '-ss', head.toFixed(3),
     '-i', webmPath,
