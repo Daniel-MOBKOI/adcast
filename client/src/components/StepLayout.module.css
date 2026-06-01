@@ -58,20 +58,33 @@
 .centreHint { font-size: 11px; color: #bbb; text-align: center; }
 
 /* Ad iframe inside phone — laid out to match the Mockup.jpg spec:
-   the creative occupies a middle band, with white space above (for the iOS
-   status bar / clock + battery) and below. Measured off the mockup:
-   top white ≈ 11.3%, creative ≈ 82.3%, bottom white ≈ 6.4% of the screen.
-   The creative itself uses the mobkoi.com embed technique inside that band. */
+   the creative occupies a middle band, white space above (for the iOS status
+   bar / clock + battery) and below. Measured off the mockup: top white ≈ 11.3%,
+   creative ≈ 82.3%, bottom white ≈ 6.4% of the screen.
+
+   The iframe is sized in FIXED PIXELS (not %) so Celtra always renders into the
+   same box and the creative never reflows when the browser window is resized.
+   Screen ≈ 249×524px → band ≈ 249×431px. iframe is rendered at 356×616 logical
+   px and scaled 0.7 → 249×431 visual, exactly filling the band. */
 .iframeWrap { width: 100%; height: 100%; position: relative; background: #fff; overflow: hidden; }
-.creativeStage { position: absolute; left: 0; right: 0; top: 11.3%; height: 82.3%; overflow: hidden; background: #fff; }
-.celtraBleed { width: 101%; height: 101%; border: none; margin: -2px; }
-.celtraWrap { width: 144%; height: 143%; padding: 0; position: relative; left: 0; top: 0; overflow: hidden; }
+.creativeStage {
+  position: absolute;
+  left: 0; right: 0;
+  top: 11.3%;
+  height: 82.3%;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
 .celtraFrame {
-  width: 100%;
-  height: 100%;
+  width: 356px;
+  height: 616px;
+  flex: none;
   border: 0;
   display: block;
-  transform-origin: 0 0;
+  transform-origin: top center;
   transform: scale(0.7);
 }
 .recBadge { position: absolute; top: 24px; right: 10px; background: rgba(239,68,68,0.92); border-radius: 99px; padding: 3px 9px; display: flex; align-items: center; gap: 4px; z-index: 20; font-size: 9px; color: #fff; font-weight: 700; font-family: monospace; }

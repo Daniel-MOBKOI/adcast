@@ -148,21 +148,18 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
                   {fmtTime(duration)}
                 </div>
               )}
-              {/* Creative band per the mockup; white space remains above/below. */}
+              {/* Creative band per the mockup; white space remains above/below.
+                  Fixed-px iframe so it doesn't reflow when the window resizes. */}
               <div className={styles.creativeStage}>
-                <div className={styles.celtraBleed}>
-                  <div className={styles.celtraWrap}>
-                    <iframe
-                      key={iframeUrl}
-                      id="frame"
-                      src={iframeUrl}
-                      className={styles.celtraFrame}
-                      allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
-                      allowFullScreen
-                      title="Celtra ad preview"
-                    />
-                  </div>
-                </div>
+                <iframe
+                  key={iframeUrl}
+                  id="frame"
+                  src={iframeUrl}
+                  className={styles.celtraFrame}
+                  allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
+                  allowFullScreen
+                  title="Celtra ad preview"
+                />
               </div>
             </div>
           ) : (
