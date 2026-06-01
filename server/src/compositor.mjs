@@ -283,38 +283,73 @@ export async function runCompositor({
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // Ad slot Y position in output coordinates
-  // adSlotTop is in scene-page px (scene rendered at W=1080px wide, so no scaling needed)
-  const adY_out = adSlotTop; // same coordinate space as output
+  // Ad slot Y position WITHIN THE VIEWPORT for each scroll position.
+  // Each screenshot is a viewport-sized crop of the page. The ad slot's
+  // visible top in that crop = adSlotTop - scrollY.
+  // We need per-frame Y values for the ffmpeg overlay.
+  // 
+  // Rather than a per-frame dynamic overlay (complex), we use a simpler approach:
+  // The overlay Y is expressed as a function of the frame's scroll position.
+  // We encode the scroll-Y per frame into a ffmpeg "sendcmd" sidecar file,
+  // OR — simplest reliable approach — we just bake the clip into the PNG frames
+  // themselves during the screenshot phase by drawing it onto a canvas.
+  //
+  // SIMPLEST FIX: compute per-frame clip Y, write it into each PNG via a 
+  // positioned <div> that shows a solid colour, then let ffmpeg overlay the 
+  // real clip using the HOLD-frame Y (fixed) and trim to hold duration only,
+  // surrounded by the scroll frames which have a black placeholder slot.
+  //
+  // Actually the correct simple approach:
+  // - The ad slot in each screenshot is a BLACK RECTANGLE at a scroll-dependent Y.
+  // - ffmpeg overlays the clip onto the OUTPUT using the per-frame scroll offset.
+  // - We express this as: overlay_y = adSlotTop - frameScrollY, clamped 0..H
+  // - We encode scrollY per frame in a sidecar CSV and use ffmpeg sendcmd.
+  //
+  // But sendcmd is complex. The REAL simplest fix:
+  // Treat the black ad slot in each screenshot as a chroma-key target and 
+  // replace it — OR just write the clip Y per frame into a companion file
+  // and use ffmpeg geq/overlay with per-frame expressions via a data file.
+  //
+  // PRAGMATIC SOLUTION: 
+  // Since the screenshots already show the publisher content scrolling correctly,
+  // and the ad slot is pure black in each frame, we can use ffmpeg's
+  // colorkey filter to replace the black slot with the video clip.
+  // The ad slot background is #000000 — we key on that colour.
 
-  // ffmpeg filter chain:
-  //   [bg]  = screenshot sequence scaled to 1080×1920
-  //   [ad]  = WebM clip scaled to 1080×950, looped to cover total duration
-  //   overlay ad onto bg at (0, adY_out)
-  //   trim to totalDurSec
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+
+  // colorkey approach: replace pure black (#000000) pixels in the bg with
+  // the scaled ad clip. similarity=0.01 (very tight — only pure black),
+  // blend=0.0 (hard edge).
+  // The ad slot is the only pure black region in the publisher screenshots.
 
   const ffArgs = [
     '-y',
     // Input 0: screenshot sequence via concat demuxer
     '-f', 'concat', '-safe', '0', '-i', concatFile,
-    // Input 1: ad clip, looped
-    '-stream_loop', '-1', '-i', clipPath,
+    // Input 1: ad clip, looped to cover full duration
+    '-stream_loop', '-1', '-t', totalDurSec.toFixed(3), '-i', clipPath,
     // Filter complex
     '-filter_complex', [
       // Scale bg frames to full output res
       `[0:v]scale=${W}:${H}:flags=lanczos[bg]`,
-      // Scale ad clip to full-width slot, pad height if needed
+      // Scale ad clip to fill the full-width slot exactly
       `[1:v]scale=${AD_W}:${AD_H}:force_original_aspect_ratio=decrease,` +
-        `pad=${AD_W}:${AD_H}:(ow-iw)/2:(oh-ih)/2[ad]`,
-      // Overlay ad onto bg at the ad slot position
-      `[bg][ad]overlay=x=0:y=${adY_out}:shortest=1[out]`,
+        `pad=${AD_W}:${AD_H}:(ow-iw)/2:(oh-ih)/2,` +
+        // Pad clip to full output size, positioned at adSlotTop - targetY
+        // (where ad slot centre appears in viewport during hold)
+        `pad=${W}:${H}:0:${Math.max(0, adSlotTop - targetY)}[ad]`,
+      // Apply colorkey: replace pure black in bg with ad clip
+      `[bg]colorkey=color=black:similarity=0.01:blend=0.0[bgkey]`,
+      // Overlay ad under the bg using the keyed hole
+      `[ad][bgkey]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
     '-t', totalDurSec.toFixed(3),
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
     '-crf', '18',
-    '-preset', 'fast',      // faster than 'medium', still good quality
+    '-preset', 'fast',
     '-movflags', '+faststart',
     outPath,
   ];
