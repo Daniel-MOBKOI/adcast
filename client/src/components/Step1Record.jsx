@@ -8,9 +8,31 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
+// Turn a pasted Celtra preview URL (e.g. https://mobkoi-uk.celtra.com/preview/<id>)
+// into the embeddable /frame endpoint with the same params the mobkoi.com site uses.
+// This forces the mobile creative and the clean standalone phone render.
+function celtraFrameUrl(raw) {
+  try {
+    const u = new URL(raw.trim());
+    // normalise: drop any existing /frame, trailing slash, and query
+    const path = u.pathname.replace(/\/frame\/?$/, '').replace(/\/$/, '');
+    u.pathname = path + '/frame';
+    u.search = '';
+    u.searchParams.set('rp.useFullWidth', '1');
+    u.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
+    u.searchParams.set('rp._useSnapping', '1');
+    u.searchParams.set('rp._snappingFraction', '0.5');
+    u.searchParams.set('rp.standalonePreview', '1');
+    return u.toString();
+  } catch {
+    return '';
+  }
+}
+
 function proxyUrl(url) {
-  if (!url) return '';
-  return '/celtra-proxy?url=' + encodeURIComponent(url);
+  const frame = celtraFrameUrl(url);
+  if (!frame) return '';
+  return '/celtra-proxy?url=' + encodeURIComponent(frame);
 }
 
 export default function Step1Record({ clipBlob, onClip, onNext }) {
@@ -138,7 +160,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
             </div>
           ) : (
             <div className={styles.emptyScreen}>
-              <i className="ti ti-link" aria-hidden="true" style={{ fontSize: 28, color: 'rgba(255,255,255,0.12)' }} />
+              <i className="ti ti-link" aria-hidden="true" style={{ fontSize: 28, color: 'rgba(0,0,0,0.18)' }} />
               <div className={styles.emptyLabel}>Paste a Celtra link to begin</div>
             </div>
           )}
