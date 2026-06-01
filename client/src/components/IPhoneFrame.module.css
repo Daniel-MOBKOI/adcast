@@ -16,12 +16,15 @@
   width: 95.8%;
   height: 98.3%;
   overflow: hidden;
-  border-radius: 11.5%;  /* matches the rounded corners of the real frame */
+  border-radius: 28px;   /* circular ~11.4% of screen width — matches the bezel curve at 260px display */
   background: #000;
-  z-index: 0;
+  z-index: 3;            /* ABOVE the frame: the PNG screen area is opaque black, so the
+                            screen (and the ad iframe in it) must sit on top of the frame,
+                            leaving only the bezel ring visible around it */
 }
 
-/* Frame PNG — sits on top, pointer-events:none so clicks pass through */
+/* Frame PNG — sits behind the screen; only its bezel ring shows around the screen.
+   pointer-events:none so clicks pass through to the iframe. */
 .frame {
   position: absolute;
   inset: 0;
