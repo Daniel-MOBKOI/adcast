@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { v4 as uuid } from 'uuid';
 import { runCompositor } from '../compositor.mjs';
-import { resolvePublisherPath } from './publishers.mjs';
+import { resolvePublisherPaths } from './publishers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const JOBS_DIR = path.join(__dirname, '..', '..', 'jobs');
@@ -29,9 +29,9 @@ router.post('/', upload.single('clip'), async (req, res) => {
   const { publisherId, publisherLabel } = req.body;
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
-  // Look up publisher file path server-side by ID — never trust a client-supplied path
-  const publisherPath = resolvePublisherPath(publisherId);
-  if (!publisherPath) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
+  // Resolve publisher to top + bottom image paths server-side
+  const publisherPaths = resolvePublisherPaths(publisherId);
+  if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
   const jobId = uuid();
   const outPath = path.join(JOBS_DIR, jobId + '.mp4');
@@ -41,8 +41,9 @@ router.post('/', upload.single('clip'), async (req, res) => {
 
   // Run compositor in background
   runCompositor({
-    clipPath: req.file.path,
-    publisherPath,
+    clipPath:            req.file.path,
+    publisherTopPath:    publisherPaths.top,
+    publisherBottomPath: publisherPaths.bottom,
     outPath,
     onProgress: (pct, msg) => {
       const job = jobs.get(jobId);
@@ -67,11 +68,11 @@ router.get('/:id', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
   res.json({
-    jobId: req.params.id,
-    status: job.status,
+    jobId:    req.params.id,
+    status:   job.status,
     progress: job.progress,
-    message: job.message || null,
-    error: job.error || null
+    message:  job.message || null,
+    error:    job.error   || null,
   });
 });
 

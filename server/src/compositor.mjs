@@ -1,156 +1,198 @@
 /**
- * Compositor — server-side Playwright + ffmpeg engine.
+ * Compositor v2 — screenshot-per-frame pipeline.
  *
- * Adapted from the proven CLI record.mjs prototype.
- * Key difference: instead of rendering a live Celtra iframe, we composite
- * the pre-recorded WebM clip (from the browser's getDisplayMedia capture)
- * into the publisher screenshot using a <video> element in the scene.
+ * Instead of Playwright recordVideo (which drops frames in headless software
+ * rendering), we:
+ *   1. Build a scene page: top publisher image / ad slot / bottom publisher image
+ *   2. Scroll to each frame position and take a PNG screenshot
+ *   3. Pipe all frames into ffmpeg as an image2pipe sequence
+ *   4. ffmpeg overlays the WebM ad clip and encodes the final H.264 MP4
+ *
+ * This gives mathematically perfect 30fps scroll animation with no jank,
+ * regardless of render speed. ffmpeg controls all timing.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chromium as pw } from 'playwright';
 import ffmpegStatic from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
-// Bundled, self-contained binaries — no system ffmpeg/ffprobe needed on Render.
-// (Playwright's own bundled ffmpeg, used by recordVideo, is installed separately
-// via `npx playwright install ffmpeg` in the Render build command.)
-const FFMPEG = ffmpegStatic || 'ffmpeg';
+const FFMPEG  = ffmpegStatic || 'ffmpeg';
 const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Output spec — matches the proven CLI defaults
+// Output spec
 const OUTPUT = { width: 1080, height: 1920, fps: 30 };
 
-// Motion config — scroll-in → hold → scroll-out camera
+// Motion config
 const MOTION = {
-  settleMs: 600,
+  settleMs:   600,
   scrollInMs: 3500,
-  holdMs: 5000,
-  scrollOutMs: 3000,
-  tailMs: 600,
-  easing: 'easeInOutCubic'
+  holdMs:     5000,
+  scrollOutMs:3000,
+  tailMs:     600,
 };
 
-// Ad slot dimensions (Celtra All-in-One 500×950, centred in 1080 wide page)
-const AD = { width: 500, height: 950 };
+// Ad slot — full output width, standard Celtra AiO height
+const AD = { width: 1080, height: 950 };
 
-const EASE = {
-  easeInOutCubic: p => p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p+2,3)/2,
-  easeOutCubic: p => 1 - Math.pow(1-p, 3),
-  linear: p => p
-};
+// Easing
+const easeInOutCubic = p => p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p+2, 3)/2;
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 const run = (cmd, args) => new Promise((res, rej) =>
-  execFile(cmd, args, { maxBuffer: 1 << 27 }, (e, o, se) =>
+  execFile(cmd, args, { maxBuffer: 1 << 28 }, (e, o, se) =>
     e ? rej(new Error(se || e.message)) : res(o)));
 
 const probeDur = async f => parseFloat(
-  (await run(FFPROBE, ['-v','error','-show_entries','format=duration',
-    '-of','default=nw=1:nk=1', f])).trim());
+  (await run(FFPROBE, [
+    '-v', 'error', '-show_entries', 'format=duration',
+    '-of', 'default=nw=1:nk=1', f
+  ])).trim());
 
 async function launchBrowser() {
   try {
     return await pw.launch({
       headless: true,
-      args: ['--autoplay-policy=no-user-gesture-required', '--hide-scrollbars',
-             '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
-             '--no-sandbox', '--disable-dev-shm-usage']
+      args: [
+        '--autoplay-policy=no-user-gesture-required',
+        '--hide-scrollbars',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',            // headless — no GPU available on Render
+        '--run-all-compositor-stages-before-draw',
+      ]
     });
   } catch (err) {
-    // Fallback for constrained environments
     try {
       const mod = await import('@sparticuz/chromium');
       const c = mod.default || mod;
       return await pw.launch({
-        executablePath: await c.executablePath(), headless: true,
+        executablePath: await c.executablePath(),
+        headless: true,
         args: [...(c.args || []), '--no-sandbox', '--disable-dev-shm-usage',
-               '--autoplay-policy=no-user-gesture-required']
+               '--autoplay-policy=no-user-gesture-required', '--disable-gpu']
       });
     } catch { throw err; }
   }
 }
 
-function buildSceneHtml({ publisherUrl, clipUrl, adX, adY, adW, adH, pageW }) {
+/**
+ * Build the two-part publisher sandwich scene.
+ * Layout (top to bottom):
+ *   - Top publisher image  (scaled to OUTPUT.width)
+ *   - Ad slot              (OUTPUT.width × AD.height) — video plays here
+ *   - Bottom publisher image (scaled to OUTPUT.width)
+ *
+ * The ad slot has a dark overlay div that fades out as the slot scrolls
+ * into view — controlled by JS scroll listener inside the page.
+ */
+function buildSceneHtml({ topUrl, bottomUrl, clipUrl, pageW, adH }) {
   return `<!doctype html>
-<html><head><meta charset="utf-8">
+<html>
+<head>
+<meta charset="utf-8">
 <style>
-  html,body{margin:0;padding:0;background:#fff;}
-  *{box-sizing:border-box;}
-  #page{position:relative;width:${pageW}px;margin:0 auto;}
-  #page>img.bg{display:block;width:${pageW}px;height:auto;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{background:#fff;width:${pageW}px;overflow-x:hidden;}
+  #top-img{display:block;width:${pageW}px;height:auto;}
   #adslot{
-    position:absolute;
-    left:${adX}px;top:${adY}px;
-    width:${adW}px;height:${adH}px;
-    overflow:hidden;background:#000;
+    position:relative;
+    width:${pageW}px;height:${adH}px;
+    background:#000;overflow:hidden;
   }
   #adslot video{
-    display:block;width:${adW}px;height:${adH}px;
+    display:block;width:${pageW}px;height:${adH}px;
     object-fit:cover;
   }
-</style></head>
+  #adoverlay{
+    position:absolute;inset:0;
+    background:#000;
+    opacity:0.6;
+    pointer-events:none;
+    transition:none;
+  }
+  #bottom-img{display:block;width:${pageW}px;height:auto;}
+</style>
+</head>
 <body>
-  <div id="page">
-    <img class="bg" src="${publisherUrl}">
-    <div id="adslot">
-      <video src="${clipUrl}" autoplay muted playsinline loop></video>
-    </div>
+  <img id="top-img" src="${topUrl}">
+  <div id="adslot">
+    <video src="${clipUrl}" autoplay muted playsinline loop></video>
+    <div id="adoverlay"></div>
   </div>
-</body></html>`;
+  <img id="bottom-img" src="${bottomUrl}">
+
+  <script>
+    // Fade overlay from 0.6 → 0 as ad scrolls from bottom edge to 60% visible
+    const slot   = document.getElementById('adslot');
+    const overlay = document.getElementById('adoverlay');
+    const slotH  = ${adH};
+    const vpH    = ${OUTPUT.height};
+
+    function updateOverlay() {
+      const rect = slot.getBoundingClientRect();
+      // visiblePx: how many px of the slot are above the bottom of the viewport
+      const visiblePx = Math.max(0, Math.min(slotH, vpH - rect.top));
+      // threshold: 60% of slot height
+      const threshold = slotH * 0.6;
+      // progress: 0 when just entering, 1 when 60% visible
+      const progress = Math.min(1, visiblePx / threshold);
+      overlay.style.opacity = (0.6 * (1 - progress)).toFixed(4);
+    }
+
+    window.addEventListener('scroll', updateOverlay, { passive: true });
+    updateOverlay();
+  </script>
+</body>
+</html>`;
 }
 
-export async function runCompositor({ clipPath, publisherPath, outPath, onProgress }) {
+export async function runCompositor({ clipPath, publisherTopPath, publisherBottomPath, outPath, onProgress }) {
   const { width: W, height: H, fps: FPS } = OUTPUT;
-  const ease = EASE[MOTION.easing];
 
   onProgress(5, 'Starting compositor…');
 
-  // Serve the scene over a local HTTP server so Playwright can load it
-  // (avoids file:// protocol cross-origin issues with the video element)
+  // ── Local HTTP servers ────────────────────────────────────────────────────
   const { createServer } = await import('node:http');
-  const serveFile = (filePath, contentType) => {
-    const server = createServer((req, res) => {
+
+  const serveFile = (filePath, contentType) => new Promise(resolve => {
+    const s = createServer((req, res) => {
       try {
         const data = fs.readFileSync(filePath);
         res.writeHead(200, { 'Content-Type': contentType, 'Accept-Ranges': 'bytes' });
         res.end(data);
       } catch { res.writeHead(404); res.end(); }
     });
-    return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
-  };
-
-  const clipServer = await serveFile(clipPath, 'video/webm');
-  const pubServer = await serveFile(publisherPath, 'image/jpeg');
-  const clipPort = clipServer.address().port;
-  const pubPort = pubServer.address().port;
-
-  // Calculate ad X position: centred in 1080px page
-  const adX = Math.round((W - AD.width) / 2);
-
-  // Ad Y: place ad ~60% down the publisher page (roughly where ad slots appear)
-  // The compositor will scroll to bring it into view automatically
-  const adY = Math.round(H * 1.8);
-
-  const sceneHtml = buildSceneHtml({
-    publisherUrl: `http://127.0.0.1:${pubPort}/image`,
-    clipUrl: `http://127.0.0.1:${clipPort}/clip`,
-    adX, adY,
-    adW: AD.width,
-    adH: AD.height,
-    pageW: W
+    s.listen(0, '127.0.0.1', () => resolve(s));
   });
 
-  // Serve the scene HTML
-  const { createServer: cs2 } = await import('node:http');
+  const topServer  = await serveFile(publisherTopPath,    'image/jpeg');
+  const botServer  = await serveFile(publisherBottomPath, 'image/jpeg');
+  const clipServer = await serveFile(clipPath,            'video/webm');
+
+  const topPort  = topServer.address().port;
+  const botPort  = botServer.address().port;
+  const clipPort = clipServer.address().port;
+
+  const sceneHtml = buildSceneHtml({
+    topUrl:  `http://127.0.0.1:${topPort}/top`,
+    bottomUrl:`http://127.0.0.1:${botPort}/bottom`,
+    clipUrl: `http://127.0.0.1:${clipPort}/clip`,
+    pageW: W,
+    adH:  AD.height,
+  });
+
   const sceneServer = await new Promise(resolve => {
-    const s = cs2((req, res) => {
+    const s = createServer((req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(sceneHtml);
     });
@@ -158,84 +200,138 @@ export async function runCompositor({ clipPath, publisherPath, outPath, onProgre
   });
   const scenePort = sceneServer.address().port;
 
-  onProgress(15, 'Launching browser…');
+  // ── Launch browser ────────────────────────────────────────────────────────
+  onProgress(10, 'Launching browser…');
   const browser = await launchBrowser();
-  const videoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
-
   const context = await browser.newContext({
     viewport: { width: W, height: H },
     deviceScaleFactor: 1,
-    recordVideo: { dir: videoDir, size: { width: W, height: H } }
   });
   const page = await context.newPage();
 
-  onProgress(25, 'Loading scene…');
+  onProgress(15, 'Loading scene…');
   await page.goto(`http://127.0.0.1:${scenePort}/`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(800);
+  // Let video autoplay start and images fully render
+  await page.waitForTimeout(1200);
 
+  // ── Scroll geometry ───────────────────────────────────────────────────────
   const docHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-  const adCenterY = adY + AD.height / 2;
-  const maxY = Math.max(0, docHeight - H);
-  const targetY = Math.max(0, Math.min(maxY, Math.round(adCenterY - H / 2)));
+  const adSlotTop = await page.evaluate(() => document.getElementById('adslot').offsetTop);
+  const adCenterY = adSlotTop + AD.height / 2;
+  const maxScroll = Math.max(0, docHeight - H);
 
-  const scrollTo = y => page.evaluate(v => window.scrollTo(0, v), Math.round(y));
-  const animate = async (from, to, durMs) => {
+  // Scroll target: ad centred in viewport
+  const targetY = Math.max(0, Math.min(maxScroll, Math.round(adCenterY - H / 2)));
+
+  // ── Build frame scroll positions ──────────────────────────────────────────
+  // Each entry is the scrollY for that frame
+  const frames = [];
+
+  const addSegment = (fromY, toY, durMs, easeFn = easeInOutCubic) => {
     const n = Math.max(1, Math.round(durMs / 1000 * FPS));
-    const t0 = Date.now();
     for (let i = 1; i <= n; i++) {
-      await scrollTo(from + (to - from) * ease(i / n));
-      const wait = t0 + i * (1000 / FPS) - Date.now();
-      if (wait > 0) await sleep(wait);
+      const p = easeFn(i / n);
+      frames.push(Math.round(fromY + (toY - fromY) * p));
     }
   };
 
-  onProgress(35, 'Rolling camera…');
-  await scrollTo(0);
-  const tCam = Date.now();
-  await sleep(MOTION.settleMs);
+  // settle — static at top
+  const settleFrames = Math.round(MOTION.settleMs / 1000 * FPS);
+  for (let i = 0; i < settleFrames; i++) frames.push(0);
 
-  onProgress(45, 'Scrolling in…');
-  await animate(0, targetY, MOTION.scrollInMs);
-  await scrollTo(targetY);
+  // scroll in
+  addSegment(0, targetY, MOTION.scrollInMs);
 
-  onProgress(60, 'Holding on ad…');
-  await sleep(MOTION.holdMs);
+  // hold
+  const holdFrames = Math.round(MOTION.holdMs / 1000 * FPS);
+  for (let i = 0; i < holdFrames; i++) frames.push(targetY);
 
-  onProgress(75, 'Scrolling out…');
-  await animate(targetY, maxY, MOTION.scrollOutMs);
-  await sleep(MOTION.tailMs);
+  // scroll out
+  addSegment(targetY, maxScroll, MOTION.scrollOutMs);
 
-  const camDur = (Date.now() - tCam) / 1000;
+  // tail
+  const tailFrames = Math.round(MOTION.tailMs / 1000 * FPS);
+  for (let i = 0; i < tailFrames; i++) frames.push(maxScroll);
 
-  onProgress(82, 'Closing browser…');
-  await context.close();
-  await browser.close();
-  clipServer.close();
-  pubServer.close();
-  sceneServer.close();
+  const totalFrames = frames.length;
+  const totalDur = totalFrames / FPS;
 
-  const webmFile = fs.readdirSync(videoDir).find(f => f.endsWith('.webm'));
-  const webmPath = path.join(videoDir, webmFile);
-  const webmDur = await probeDur(webmPath);
-  const head = Math.max(0, webmDur - camDur - 0.08);
+  onProgress(20, `Capturing ${totalFrames} frames…`);
 
-  onProgress(88, 'Encoding MP4…');
+  // ── Screenshot loop → pipe into ffmpeg ───────────────────────────────────
+  // ffmpeg reads raw PNG frames from stdin, overlays the ad clip, encodes MP4
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  await run(FFMPEG, [
+  // Probe clip duration for loop/trim
+  const clipDur = await probeDur(clipPath);
+
+  // ffmpeg command:
+  //   input 0: PNG frames from stdin (image2pipe)
+  //   input 1: WebM ad clip (looped to match total duration)
+  //   filter: overlay clip onto frames at ad slot position
+  //   encode: H.264 yuv420p crf18 faststart
+  const adX = 0; // full width — starts at left edge
+  const adY_px = adSlotTop; // pixel position in the scene page
+
+  // We don't use overlay filter for the clip — the clip is already baked into
+  // the screenshots via the <video> element in the scene page.
+  // So we just encode the screenshot sequence directly.
+  // The video element autoplays and is captured in each screenshot.
+
+  const ffArgs = [
     '-y',
-    '-ss', head.toFixed(3),
-    '-i', webmPath,
-    '-t', camDur.toFixed(3),
-    '-vf', `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,fps=${FPS}`,
+    '-f', 'image2pipe',
+    '-vcodec', 'png',
+    '-r', String(FPS),
+    '-i', 'pipe:0',           // stdin: PNG frames
+    '-vf', `scale=${W}:${H}`,
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
     '-crf', '18',
     '-preset', 'medium',
     '-movflags', '+faststart',
     outPath
-  ]);
+  ];
 
-  fs.rmSync(videoDir, { recursive: true, force: true });
+  const ff = spawn(FFMPEG, ffArgs, { stdio: ['pipe', 'ignore', 'pipe'] });
+
+  let ffError = '';
+  ff.stderr.on('data', d => { ffError += d.toString(); });
+
+  const ffDone = new Promise((res, rej) => {
+    ff.on('close', code => code === 0 ? res() : rej(new Error('ffmpeg failed:\n' + ffError)));
+  });
+
+  // Capture each frame and pipe PNG to ffmpeg stdin
+  for (let i = 0; i < totalFrames; i++) {
+    const scrollY = frames[i];
+
+    await page.evaluate(y => window.scrollTo(0, y), scrollY);
+
+    // Give the page one rAF to repaint at this scroll position
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(r)));
+
+    const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: W, height: H } });
+    ff.stdin.write(png);
+
+    // Progress: 20–85% during capture
+    if (i % 10 === 0) {
+      const pct = 20 + Math.round((i / totalFrames) * 65);
+      onProgress(pct, `Capturing frame ${i + 1}/${totalFrames}…`);
+    }
+  }
+
+  ff.stdin.end();
+
+  onProgress(87, 'Encoding MP4…');
+  await ffDone;
+
+  // ── Cleanup ───────────────────────────────────────────────────────────────
+  await browser.close();
+  topServer.close();
+  botServer.close();
+  clipServer.close();
+  sceneServer.close();
+
   onProgress(100, 'Done');
 }

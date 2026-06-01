@@ -7,7 +7,7 @@ import { v4 as uuid } from 'uuid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILTIN_DIR = path.join(__dirname, '..', '..', 'publishers');
-const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
+const UPLOAD_DIR  = path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const storage = multer.diskStorage({
@@ -16,10 +16,28 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
-// Seeded publisher library — add entries here to add built-in publisher pages
+/**
+ * Seeded publisher library.
+ *
+ * Each entry has:
+ *   fileTop    — the article content ABOVE the ad slot
+ *   fileBottom — the article content BELOW the ad slot
+ *
+ * For the Condé Nast Traveler seed:
+ *   fileTop    = conde-nast-traveler-1.jpg  (article top, ends with "ADVERTISEMENT" bar)
+ *   fileBottom = conde-nast-traveler-2.jpg  (article bottom, starts with "SCROLL TO CONTINUE")
+ *
+ * The compositor stacks them: [top image] / [ad slot] / [bottom image]
+ */
 const BUILTIN = [
-  { id: 'cnt-1', label: "Condé Nast Traveler — Las Vegas", file: 'conde-nast-traveler-1.jpg' },
-  { id: 'cnt-2', label: "Condé Nast Traveler — Fontainebleau", file: 'conde-nast-traveler-2.jpg' },
+  {
+    id: 'cnt-1',
+    label: "Condé Nast Traveler — Las Vegas",
+    fileTop:    'conde-nast-traveler-1.jpg',
+    fileBottom: 'conde-nast-traveler-2.jpg',
+    // Preview thumbnail shown in Step 2 grid (top image)
+    thumb: 'conde-nast-traveler-1.jpg',
+  },
 ];
 
 const router = express.Router();
@@ -27,20 +45,20 @@ const router = express.Router();
 // GET /api/publishers
 router.get('/', (_req, res) => {
   const builtin = BUILTIN.map(p => ({
-    id: p.id,
-    label: p.label,
-    url: `/publishers/${p.file}`,
-    source: 'builtin'
+    id:     p.id,
+    label:  p.label,
+    url:    `/publishers/${p.thumb}`,   // thumbnail for the picker grid
+    source: 'builtin',
   }));
 
   const uploaded = fs.existsSync(UPLOAD_DIR)
     ? fs.readdirSync(UPLOAD_DIR)
         .filter(f => /\.(jpg|jpeg|png|webp)$/i.test(f))
         .map(f => ({
-          id: 'upload-' + f,
-          label: path.basename(f, path.extname(f)),
-          url: `/uploads/${f}`,
-          source: 'upload'
+          id:     'upload-' + f,
+          label:  path.basename(f, path.extname(f)),
+          url:    `/uploads/${f}`,
+          source: 'upload',
         }))
     : [];
 
@@ -51,24 +69,36 @@ router.get('/', (_req, res) => {
 router.post('/upload', upload.single('screenshot'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   res.json({
-    id: 'upload-' + req.file.filename,
-    label: req.body.label || req.file.originalname,
-    url: `/uploads/${req.file.filename}`,
-    source: 'upload'
+    id:     'upload-' + req.file.filename,
+    label:  req.body.label || req.file.originalname,
+    url:    `/uploads/${req.file.filename}`,
+    source: 'upload',
   });
 });
 
 export default router;
 
-// Exported helper — used by jobs route to resolve a publisher ID to a disk path
-// without trusting any client-supplied path
-export function resolvePublisherPath(id) {
+/**
+ * resolvePublisherPaths(id) → { top: string, bottom: string } | null
+ *
+ * Returns absolute disk paths for the top and bottom publisher images.
+ * For single-image uploaded publishers, both top and bottom are the same file
+ * (the compositor will stack image / ad / image which still looks fine).
+ */
+export function resolvePublisherPaths(id) {
+  // Built-in two-image publisher
   const builtin = BUILTIN.find(p => p.id === id);
-  if (builtin) return path.join(BUILTIN_DIR, builtin.file);
+  if (builtin) {
+    return {
+      top:    path.join(BUILTIN_DIR, builtin.fileTop),
+      bottom: path.join(BUILTIN_DIR, builtin.fileBottom),
+    };
+  }
 
-  // Uploaded publishers have id = 'upload-<filename>'
+  // Uploaded single-image publisher — use same image for top and bottom
   const filename = id.startsWith('upload-') ? id.slice('upload-'.length) : null;
   if (!filename) return null;
   const uploadPath = path.join(UPLOAD_DIR, filename);
-  return fs.existsSync(uploadPath) ? uploadPath : null;
+  if (!fs.existsSync(uploadPath)) return null;
+  return { top: uploadPath, bottom: uploadPath };
 }
