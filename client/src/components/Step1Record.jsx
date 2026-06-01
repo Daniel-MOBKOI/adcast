@@ -148,19 +148,20 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
                   {fmtTime(duration)}
                 </div>
               )}
-              {/* Mirrors the mobkoi.com studio embed: 101% bleed → 144%/143%
-                  wrapper (overflow hidden) → iframe scaled 0.7 from top-left. */}
-              <div className={styles.celtraBleed}>
-                <div className={styles.celtraWrap}>
-                  <iframe
-                    key={iframeUrl}
-                    id="frame"
-                    src={iframeUrl}
-                    className={styles.celtraFrame}
-                    allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
-                    allowFullScreen
-                    title="Celtra ad preview"
-                  />
+              {/* Creative band per the mockup; white space remains above/below. */}
+              <div className={styles.creativeStage}>
+                <div className={styles.celtraBleed}>
+                  <div className={styles.celtraWrap}>
+                    <iframe
+                      key={iframeUrl}
+                      id="frame"
+                      src={iframeUrl}
+                      className={styles.celtraFrame}
+                      allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
+                      allowFullScreen
+                      title="Celtra ad preview"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
