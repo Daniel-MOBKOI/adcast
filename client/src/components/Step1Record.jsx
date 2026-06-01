@@ -8,39 +8,34 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-// Build the embeddable Celtra URL exactly like the mobkoi.com studio embed:
-// take the creative ID out of the pasted preview URL and load it from the
-// preview-sandbox host with the standalone phone-render params.
-function celtraFrameUrl(raw) {
-  try {
-    const u = new URL(raw.trim());
-    const m = u.pathname.match(/\/preview\/([^/?#]+)/);
-    if (!m) return '';
-    const id = m[1];
-    const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
-    f.searchParams.set('rp.useFullWidth', '1');
-    f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
-    f.searchParams.set('rp._useSnapping', '1');
-    f.searchParams.set('rp._snappingFraction', '0.5');
-    f.searchParams.set('rp.standalonePreview', '1');
-    return f.toString();
-  } catch {
-    return '';
+// Accept either a bare Creative ID (e.g. "3b32c8f0") or a full Celtra preview
+// link, and build the direct preview-sandbox /frame URL — embedded directly
+// like the mobkoi.com studio page (no proxy), which is what keeps the unit
+// from reflowing on window resize.
+function creativeFrameUrl(input) {
+  if (!input) return '';
+  let id = input.trim();
+  if (id.includes('/')) {
+    // a URL was pasted — pull the ID out of /preview/<id>
+    const m = id.match(/\/preview\/([^/?#]+)/);
+    id = m ? m[1] : '';
   }
-}
-
-function proxyUrl(url) {
-  const frame = celtraFrameUrl(url);
-  if (!frame) return '';
-  return '/celtra-proxy?url=' + encodeURIComponent(frame);
+  if (!/^[A-Za-z0-9]+$/.test(id)) return '';
+  const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
+  f.searchParams.set('rp.useFullWidth', '1');
+  f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
+  f.searchParams.set('rp._useSnapping', '1');
+  f.searchParams.set('rp._snappingFraction', '0.5');
+  f.searchParams.set('rp.standalonePreview', '1');
+  return f.toString();
 }
 
 export default function Step1Record({ clipBlob, onClip, onNext }) {
   const [celtraUrl, setCeltraUrl] = useState('');
   const { state, duration, error, blob, start, stop, reset } = useRecorder();
 
-  // Auto-load as soon as a URL is pasted
-  const iframeUrl = celtraUrl.trim() ? proxyUrl(celtraUrl.trim()) : null;
+  // Auto-load as soon as an ID or link is provided — direct embed, no proxy
+  const iframeUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim()) : null;
 
   function handleRecordToggle() {
     if (state === 'idle' || state === 'done' || state === 'error') {
@@ -63,7 +58,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
 
         <div className={styles.fieldGroup}>
           <div className={styles.fieldHeader}>
-            <span className={styles.fieldLabel}>Celtra preview link</span>
+            <span className={styles.fieldLabel}>Celtra creative ID or link</span>
             <button
               className={styles.iconBtn}
               onClick={() => { const u = celtraUrl; setCeltraUrl(''); setTimeout(() => setCeltraUrl(u), 50); }}
@@ -76,7 +71,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
           </div>
           <input
             className={styles.input}
-            placeholder="https://mobkoi-uk.celtra.com/preview/…"
+            placeholder="3b32c8f0  or  https://mobkoi-uk.celtra.com/preview/…"
             value={celtraUrl}
             onChange={e => setCeltraUrl(e.target.value)}
           />
@@ -149,17 +144,21 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
                 </div>
               )}
               {/* Creative band per the mockup; white space remains above/below.
-                  Fixed-px iframe so it doesn't reflow when the window resizes. */}
+                  Exact mobkoi.com embed, loaded directly (no proxy). */}
               <div className={styles.creativeStage}>
-                <iframe
-                  key={iframeUrl}
-                  id="frame"
-                  src={iframeUrl}
-                  className={styles.celtraFrame}
-                  allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
-                  allowFullScreen
-                  title="Celtra ad preview"
-                />
+                <div className={styles.celtraBleed}>
+                  <div className={styles.celtraWrap}>
+                    <iframe
+                      key={iframeUrl}
+                      id="frame"
+                      src={iframeUrl}
+                      className={styles.celtraFrame}
+                      allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
+                      allowFullScreen
+                      title="Celtra ad preview"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
