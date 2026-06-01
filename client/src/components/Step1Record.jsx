@@ -8,17 +8,10 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-// Force Celtra to render in phone/mobile mode by ensuring the override param is present
-function mobileCeltraUrl(url) {
-  if (!url) return url;
-  // Celtra uses a hash-based override: #overrides.deviceInfo.deviceType=Phone
-  // Strip any existing deviceType override then re-add it
-  const [base, hash] = url.split('#');
-  const hashParams = (hash || '')
-    .split('&')
-    .filter(p => !p.includes('deviceInfo.deviceType'));
-  hashParams.push('overrides.deviceInfo.deviceType=Phone');
-  return base + '#' + hashParams.join('&');
+// Route the Celtra URL through our server-side proxy which adds a mobile user agent
+function proxyUrl(celtraUrl) {
+  if (!celtraUrl) return '';
+  return '/celtra-proxy?url=' + encodeURIComponent(celtraUrl);
 }
 
 export default function Step1Record({ clipBlob, onClip, onNext }) {
@@ -38,7 +31,6 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
     }
   }
 
-  // When recording finishes, surface the blob to parent
   if (state === 'done' && blob && blob !== clipBlob) {
     onClip(blob, duration);
   }
@@ -57,7 +49,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
             onChange={e => { setCeltraUrl(e.target.value); setAdLoaded(false); }}
             onKeyDown={e => e.key === 'Enter' && handleLoad()}
           />
-          <p className={styles.hint}>Paste any Celtra preview URL — loads in mobile mode automatically.</p>
+          <p className={styles.hint}>Paste any Celtra preview URL — renders in mobile mode automatically.</p>
         </div>
 
         <button className={styles.btnSecondary} onClick={handleLoad} disabled={!celtraUrl.trim()}>
@@ -130,7 +122,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
                 </div>
               )}
               <iframe
-                src={mobileCeltraUrl(celtraUrl)}
+                src={proxyUrl(celtraUrl)}
                 className={styles.adIframe}
                 scrolling="no"
                 frameBorder="0"
