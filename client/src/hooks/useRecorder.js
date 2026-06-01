@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback } from 'react';
 
 /**
- * useRecorder — wraps getDisplayMedia tab capture.
+ * useRecorder — wraps getDisplayMedia with optional cropTo() element capture.
  *
- * The user captures the entire tab; we don't crop on the client (the phone
- * frame is a UI metaphor — the actual Celtra ad runs fullscreen in an iframe
- * on the backend scene page). The raw WebM is uploaded as-is for the
- * compositor to use as the ad video element.
+ * When an `elementRef` is passed to `start()`, the stream is cropped to that
+ * element using the Element Capture API (Chrome 122+). This records only the
+ * iframe content at its actual rendered size — no AdCast UI chrome.
+ *
+ * Falls back to full tab capture if cropTo() is not supported.
  */
 export function useRecorder() {
   const [state, setState] = useState('idle'); // idle | requesting | recording | done | error
@@ -20,7 +21,7 @@ export function useRecorder() {
   const timerRef = useRef(null);
   const secondsRef = useRef(0);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (elementRef) => {
     setError(null);
     setBlob(null);
     setState('requesting');
@@ -29,15 +30,31 @@ export function useRecorder() {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30, displaySurface: 'browser' },
         audio: false,
-        preferCurrentTab: true // Chrome 107+ hint — user still confirms
+        preferCurrentTab: true
       });
       streamRef.current = stream;
 
-      // Pick best supported codec
+      // Attempt to crop to the target element (Chrome 122+ Element Capture API)
+      if (elementRef?.current && stream.getVideoTracks().length > 0) {
+        const track = stream.getVideoTracks()[0];
+        if (typeof track.cropTo === 'function') {
+          try {
+            const cropTarget = await CropTarget.fromElement(elementRef.current);
+            await track.cropTo(cropTarget);
+          } catch (cropErr) {
+            console.warn('cropTo() failed, falling back to full tab capture:', cropErr);
+          }
+        }
+      }
+
+      // Pick best supported codec — prefer vp9 for quality
       const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
         .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
 
-      const mr = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+      const mr = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 20_000_000 // 20Mbps for crisp creative capture
+      });
       mediaRecorderRef.current = mr;
       chunksRef.current = [];
 
@@ -58,7 +75,7 @@ export function useRecorder() {
       secondsRef.current = 0;
       setDuration(0);
       setState('recording');
-      mr.start(500); // collect chunks every 500ms
+      mr.start(250); // smaller chunks for smoother quality
 
       timerRef.current = setInterval(() => {
         secondsRef.current += 1;
