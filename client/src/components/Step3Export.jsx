@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { createJob, pollJob, downloadUrl } from '../api.js';
+import { createJob, pollJob, downloadJob } from '../api.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
 import styles from './StepLayout.module.css';
 
@@ -48,6 +48,20 @@ export default function Step3Export({ clipBlob, clipDuration, publisher, jobId, 
     }, 2000);
   }
 
+  async function handleDownload() {
+    try {
+      const blob = await downloadJob(jobId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'adcast.mp4';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setErrorMsg('Download failed: ' + err.message);
+    }
+  }
+
   const isDone = status === 'done';
   const isError = status === 'error';
   const isWorking = status === 'uploading' || status === 'processing';
@@ -89,9 +103,9 @@ export default function Step3Export({ clipBlob, clipDuration, publisher, jobId, 
         <div className={styles.divider} />
 
         {isDone && jobId && (
-          <a href={downloadUrl(jobId)} className={styles.btnPrimary} download="adcast.mp4" style={{ textDecoration: 'none', textAlign: 'center', display: 'block' }}>
+          <button onClick={handleDownload} className={styles.btnPrimary} style={{ width: '100%', textAlign: 'center' }}>
             ↓ Download MP4
-          </a>
+          </button>
         )}
 
         <button className={styles.btnSecondary} onClick={onNew} style={{ width: '100%', justifyContent: 'center' }}>
@@ -143,7 +157,7 @@ export default function Step3Export({ clipBlob, clipDuration, publisher, jobId, 
       <div className={styles.navBar}>
         <button className={styles.btnSecondary} onClick={onBack} disabled={isWorking}>← Back</button>
         {isDone && jobId
-          ? <a href={downloadUrl(jobId)} className={styles.btnPrimary} download="adcast.mp4" style={{ textDecoration: 'none' }}>↓ Download MP4</a>
+          ? <button onClick={handleDownload} className={styles.btnPrimary}>↓ Download MP4</button>
           : <button className={styles.btnPrimary} disabled>{isWorking ? `Rendering… ${Math.round(progress)}%` : isError ? 'Failed' : 'Preparing…'}</button>
         }
       </div>

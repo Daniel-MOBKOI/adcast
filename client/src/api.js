@@ -53,6 +53,7 @@ export async function pollJob(jobId) {
   return res.json();
 }
 
-export function downloadUrl(jobId) {
-  return `${BASE}/jobs/${jobId}/download?token=${encodeURIComponent(getToken())}`;
+export async function downloadJob(jobId) {
+  const res = await apiFetch(`/jobs/${jobId}/download`);
+  return res.blob();
 }
