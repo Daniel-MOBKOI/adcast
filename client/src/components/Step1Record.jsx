@@ -8,22 +8,22 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-// Turn a pasted Celtra preview URL (e.g. https://mobkoi-uk.celtra.com/preview/<id>)
-// into the embeddable /frame endpoint with the same params the mobkoi.com site uses.
-// This forces the mobile creative and the clean standalone phone render.
+// Build the embeddable Celtra URL exactly like the mobkoi.com studio embed:
+// take the creative ID out of the pasted preview URL and load it from the
+// preview-sandbox host with the standalone phone-render params.
 function celtraFrameUrl(raw) {
   try {
     const u = new URL(raw.trim());
-    // normalise: drop any existing /frame, trailing slash, and query
-    const path = u.pathname.replace(/\/frame\/?$/, '').replace(/\/$/, '');
-    u.pathname = path + '/frame';
-    u.search = '';
-    u.searchParams.set('rp.useFullWidth', '1');
-    u.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
-    u.searchParams.set('rp._useSnapping', '1');
-    u.searchParams.set('rp._snappingFraction', '0.5');
-    u.searchParams.set('rp.standalonePreview', '1');
-    return u.toString();
+    const m = u.pathname.match(/\/preview\/([^/?#]+)/);
+    if (!m) return '';
+    const id = m[1];
+    const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
+    f.searchParams.set('rp.useFullWidth', '1');
+    f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
+    f.searchParams.set('rp._useSnapping', '1');
+    f.searchParams.set('rp._snappingFraction', '0.5');
+    f.searchParams.set('rp.standalonePreview', '1');
+    return f.toString();
   } catch {
     return '';
   }
@@ -148,15 +148,21 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
                   {fmtTime(duration)}
                 </div>
               )}
-              <iframe
-                key={iframeUrl}
-                src={iframeUrl}
-                className={styles.adIframe}
-                scrolling="no"
-                frameBorder="0"
-                allow="autoplay; fullscreen; accelerometer; gyroscope"
-                title="Celtra ad preview"
-              />
+              {/* Mirrors the mobkoi.com studio embed: 101% bleed → 144%/143%
+                  wrapper (overflow hidden) → iframe scaled 0.7 from top-left. */}
+              <div className={styles.celtraBleed}>
+                <div className={styles.celtraWrap}>
+                  <iframe
+                    key={iframeUrl}
+                    id="frame"
+                    src={iframeUrl}
+                    className={styles.celtraFrame}
+                    allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
+                    allowFullScreen
+                    title="Celtra ad preview"
+                  />
+                </div>
+              </div>
             </div>
           ) : (
             <div className={styles.emptyScreen}>
