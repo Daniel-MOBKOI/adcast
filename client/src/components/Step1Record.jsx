@@ -48,8 +48,12 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
   // Preview URL (with standalone chrome) — shown in phone frame
   const previewUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: true }) : null;
 
-  // Recording URL (without standalone chrome) — shown in lightbox
-  const recordUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: false }) : null;
+  // Recording URL — routed through our server proxy which injects touch emulation
+  // Same-origin delivery allows touch event injection into the Celtra iframe
+  const recordUrlDirect = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: false }) : null;
+  const recordUrl = recordUrlDirect
+    ? `/celtra-proxy?url=${encodeURIComponent(recordUrlDirect)}`
+    : null;
 
   function handleReload() {
     const u = celtraUrl;
