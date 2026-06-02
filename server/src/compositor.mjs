@@ -186,8 +186,12 @@ export async function runCompositor({
     '-r', String(FPS),
     '-i', 'pipe:0',
     '-filter_complex', [
-      // Scale clip to fit content area (no zoom/crop), add black ad bars, pad to full frame
-      `[0:v]scale=${W}:${AD_CONTENT_H}:force_original_aspect_ratio=decrease,` +
+      // Scale clip to fit within AD_CONTENT area (no zoom/crop):
+      // 1. Scale so it fits within W x AD_CONTENT_H (decrease = no overflow)
+      // 2. Pad to exactly W x AD_CONTENT_H (centres clip, fills rest with black)
+      // 3. Pad to CREATIVE_H adding AD_BAR_H black bars top and bottom
+      // 4. Pad to full H x W adding CREATIVE_TOP white at top (iPhone UI area)
+      `[0:v]scale='if(gt(a,${W}/${AD_CONTENT_H}),${W},-2)':'if(gt(a,${W}/${AD_CONTENT_H}),-2,${AD_CONTENT_H})',` +
         `pad=${W}:${AD_CONTENT_H}:(ow-iw)/2:(oh-ih)/2:color=black,` +
         `pad=${W}:${CREATIVE_H}:0:${AD_BAR_H}:color=black,` +
         `pad=${W}:${H}:0:${CREATIVE_TOP}:color=white[clip]`,
