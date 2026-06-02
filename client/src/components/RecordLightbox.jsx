@@ -74,11 +74,12 @@ export default function RecordLightbox({
             ref={iframeRef}
             src={iframeUrl}
             className={styles.frame}
-            allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
+            allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope; pointer-lock"
             allowFullScreen
             title="Celtra ad — record mode"
-            scrolling="no"
+            scrolling="yes"
             frameBorder="0"
+            style={{ touchAction: 'pan-x pan-y', overscrollBehavior: 'contain' }}
           />
         </div>
 
