@@ -48,12 +48,9 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
   // Preview URL (with standalone chrome) — shown in phone frame
   const previewUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: true }) : null;
 
-  // Recording URL — routed through our server proxy which injects touch emulation
-  // Same-origin delivery allows touch event injection into the Celtra iframe
-  const recordUrlDirect = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: false }) : null;
-  const recordUrl = recordUrlDirect
-    ? `/celtra-proxy?url=${encodeURIComponent(recordUrlDirect)}`
-    : null;
+  // Recording URL — direct Celtra embed (no proxy, proxy breaks Celtra JS)
+  // Touch emulation handled by AdCast Recorder Chrome extension
+  const recordUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: false }) : null;
 
   function handleReload() {
     const u = celtraUrl;
