@@ -30,8 +30,9 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
   if (standalone) {
     f.searchParams.set('rp.standalonePreview', '1');
   } else {
-    // Recording mode — remove ad bars using Celtra native parameter
+    // Recording mode — remove all Celtra chrome
     f.searchParams.set('rp.removeAdvertisementBars', '1');
+    f.searchParams.set('rp.standalonePreview', '0');
   }
   return f.toString();
 }

@@ -103,15 +103,14 @@
 }
 
 .frame {
-  /* Offset iframe to hide ad bars:
-     - Move up by ~4.5% to push top bar above visible area
-     - Increase height by ~9% so bottom bar is below visible area
-     Both bars are ~55px in a 2384px creative = ~2.3% each */
+  /* Offset iframe to push ad bars outside visible area.
+     removeAdvertisementBars=1 removes the text but leaves black bar space.
+     Bars are ~4% top and ~4% bottom of the iframe height — offset slightly more. */
   position: absolute;
-  top: -4.8%;
+  top: -5.5%;
   left: 0;
   width: 100%;
-  height: 109.6%;
+  height: 111%;
   border: 0;
   display: block;
   cursor: none;
