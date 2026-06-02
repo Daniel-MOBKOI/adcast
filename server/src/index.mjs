@@ -156,6 +156,14 @@ app.get('/celtra-proxy', async (req, res) => {
   }
 });
 
+// Serve the AdCast Recorder Chrome extension for download
+app.get('/adcast-extension.zip', (_req, res) => {
+  const extPath = path.join(__dirname, '..', 'extension', 'adcast-extension.zip');
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename="adcast-extension.zip"');
+  res.sendFile(extPath);
+});
+
 // Auth wall — all /api routes require the team password
 app.use('/api', authMiddleware);
 app.use('/api/publishers', publishersRouter);

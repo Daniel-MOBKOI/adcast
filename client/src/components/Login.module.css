@@ -36,3 +36,15 @@
 }
 .btn:hover:not(:disabled) { background: #1d4ed8; }
 .btn:disabled { opacity: 0.5; cursor: default; }
+
+/* Extension banner */
+.extBanner { margin-top: 20px; padding-top: 16px; border-top: 1px solid #f0f0f0; }
+
+.extActive { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #16a34a; font-weight: 500; }
+.extDot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+
+.extInstall { display: flex; flex-direction: column; gap: 8px; }
+.extMsg { font-size: 12px; color: #888; line-height: 1.5; margin: 0; }
+.extLink { display: inline-block; font-size: 13px; font-weight: 600; color: #0a0a0a; text-decoration: none; border: 1px solid #e0e0e0; border-radius: 7px; padding: 7px 14px; transition: background 0.12s; }
+.extLink:hover { background: #f5f5f5; }
+.extHint { font-size: 11px; color: #bbb; line-height: 1.55; margin: 0; }
