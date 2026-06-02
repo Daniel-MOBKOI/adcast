@@ -89,24 +89,32 @@
 .closeBtn:hover:not(:disabled) { background: rgba(255,255,255,0.2); color: #fff; }
 .closeBtn:disabled { opacity: 0.3; cursor: default; }
 
-/* Ad frame — 9:19.5 aspect ratio, fits available height */
+/* Ad frame — exact master ratio (1179:2384 creative unit) */
+/* Ad bars in Celtra are ~2.3% top and ~2.3% bottom of the iframe */
+/* We offset the iframe up and increase its height to push bars out of view */
 .frameWrap {
-  /* Height = total inner height minus header, controls, gaps */
   height: calc(100vh - 160px);
-  width: calc((100vh - 160px) * (390 / 844));
+  width: calc((100vh - 160px) * (1179 / 2384));
   flex-shrink: 0;
   border-radius: 4px;
   overflow: hidden;
   background: #000;
-  /* No rec badge inside — timer is in header above */
+  position: relative;
 }
 
 .frame {
+  /* Offset iframe to hide ad bars:
+     - Move up by ~4.5% to push top bar above visible area
+     - Increase height by ~9% so bottom bar is below visible area
+     Both bars are ~55px in a 2384px creative = ~2.3% each */
+  position: absolute;
+  top: -4.8%;
+  left: 0;
   width: 100%;
-  height: 100%;
+  height: 109.6%;
   border: 0;
   display: block;
-  cursor: none; /* hide cursor inside iframe during recording */
+  cursor: none;
 }
 
 /* Controls */

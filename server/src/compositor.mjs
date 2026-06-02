@@ -25,22 +25,21 @@ import ffprobeStatic from 'ffprobe-static';
 const FFMPEG  = ffmpegStatic  || 'ffmpeg';
 const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
-// Output — standard mobile portrait
-const W   = 1080;
-const H   = 1920;
+// Output — exact ratio match to master (1179x2556 -> 810x1756)
+const W   = 810;
+const H   = 1756;
 const FPS = 30;
 
-// Scale factor from mockup (1179×2556) to output (1080×1920)
-const SX = W / 1179;  // 0.9161
-const SY = H / 2556;  // 0.7511
+// Scale factor from mockup (1179x2556) to output (810x1756)
+const SY = H / 2556;  // 0.6871
 
 // Creative layer — anchored to bottom, scaled from mockup
-const CREATIVE_H   = Math.round(2384 * SY); // 1790px
-const CREATIVE_TOP = H - CREATIVE_H;        // 130px
+const CREATIVE_H   = Math.round(2384 * SY); // 1638px
+const CREATIVE_TOP = H - CREATIVE_H;        // 118px
 
 // Ad bars — 55px in mockup scaled to output
-const AD_BAR_H     = Math.round(55 * SY);   // 41px
-const AD_CONTENT_H = CREATIVE_H - AD_BAR_H * 2; // content between bars
+const AD_BAR_H     = Math.round(55 * SY);   // 38px
+const AD_CONTENT_H = CREATIVE_H - AD_BAR_H * 2; // 1562px
 
 // Publisher gap = full creative height
 const PUB_GAP_H = CREATIVE_H;
