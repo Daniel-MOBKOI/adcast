@@ -1,58 +1,51 @@
 /**
- * Compositor v7 — pixel-perfect positioning, memory-efficient, fast.
+ * Compositor v8 — pipe frames directly to ffmpeg stdin.
  *
- * Output: 1179×2556px H.264 MP4
+ * Key changes from v7:
+ * - Output scaled to 1080×1920 (standard mobile, ~44% fewer pixels than 1179×2556)
+ * - Frames piped to ffmpeg stdin instead of concat demuxer — no file I/O bottleneck
+ *   and ffmpeg never buffers more than a few frames at once
+ * - No tmp frame files written to disk
+ * - Sharp processes one frame at a time, GC can reclaim after each pipe write
  *
- * Layer stack (bottom to top):
- *   1. Creative/ad clip — 1179×2384px anchored to BOTTOM (top at Y=172)
- *      Top ad bar:    Y=172, H=55px (black, part of creative)
- *      Bottom ad bar: Y=2501, H=55px (black, part of creative)
- *   2. Publisher overlay — scrolls over the top, transparent gap=2384px
- *      reveals the creative below
- *
- * Speed optimisation: unique frames only (~198 vs 381).
- * Memory optimisation: per-frame slice compositing, no giant canvas.
- * Zoom fix: clip fits within creative area (decrease AR), padded not cropped.
+ * Layer stack:
+ *   1. Creative/ad clip — fits within content area, black bars top+bottom
+ *   2. Publisher overlay — scrolls over, transparent gap reveals clip
  */
 
-import fs   from 'node:fs';
-import path from 'node:path';
-import os   from 'node:os';
+import fs     from 'node:fs';
+import path   from 'node:path';
+import os     from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { execFile } from 'node:child_process';
-import sharp from 'sharp';
+import { execFile, spawn } from 'node:child_process';
+import sharp  from 'sharp';
 import ffmpegStatic  from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
 const FFMPEG  = ffmpegStatic  || 'ffmpeg';
 const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
-// ── Output frame ─────────────────────────────────────────────────────────────
-const W   = 1179;
-const H   = 2556;
+// Output — standard mobile portrait
+const W   = 1080;
+const H   = 1920;
 const FPS = 30;
 
-// ── Creative layer ────────────────────────────────────────────────────────────
-// Anchored to BOTTOM of output frame
-const CREATIVE_H   = 2384; // from Creative_Unit_Layer_0.jpg
-const CREATIVE_TOP = H - CREATIVE_H; // 172px
+// Scale factor from mockup (1179×2556) to output (1080×1920)
+const SX = W / 1179;  // 0.9161
+const SY = H / 2556;  // 0.7511
 
-// Ad bars — 55px each, part of creative layer
-const AD_BAR_TOP_Y = CREATIVE_TOP;          // 172px — flush under iPhone UI
-const AD_BAR_TOP_H = 55;
-const AD_BAR_BOT_Y = H - 55;               // 2501px — flush at bottom
-const AD_BAR_BOT_H = 55;
+// Creative layer — anchored to bottom, scaled from mockup
+const CREATIVE_H   = Math.round(2384 * SY); // 1790px
+const CREATIVE_TOP = H - CREATIVE_H;        // 130px
 
-// Visible ad content area (between the two bars)
-const AD_CONTENT_Y = AD_BAR_TOP_Y + AD_BAR_TOP_H; // 227px
-const AD_CONTENT_H = AD_BAR_BOT_Y - AD_CONTENT_Y;  // 2274px
+// Ad bars — 55px in mockup scaled to output
+const AD_BAR_H     = Math.round(55 * SY);   // 41px
+const AD_CONTENT_H = CREATIVE_H - AD_BAR_H * 2; // content between bars
 
-// ── Publisher gap ─────────────────────────────────────────────────────────────
-// Gap in publisher overlay = full creative height = 2384px
-// (so both ad bars are visible when the gap is centred in the viewport)
-const PUB_GAP_H = CREATIVE_H; // 2384px
+// Publisher gap = full creative height
+const PUB_GAP_H = CREATIVE_H;
 
-// ── Motion ────────────────────────────────────────────────────────────────────
+// Motion (ms)
 const MOTION = {
   settleMs:    600,
   scrollInMs:  3500,
@@ -68,20 +61,13 @@ const run = (cmd, args) => new Promise((res, rej) =>
   execFile(cmd, args, { maxBuffer: 1 << 28 }, (e, o, se) =>
     e ? rej(new Error(se || e.message)) : res(o)));
 
-/**
- * Build one W×H publisher overlay frame at scrollY.
- * Only the visible slices of top/bottom images are composited.
- * Gap region is transparent — reveals creative below.
- */
 async function buildFrame({ scrollY, topImg, topH, botImg, botH, pubCanvasH }) {
   const gapTop = topH;
   const gapBot = topH + PUB_GAP_H;
   const vpTop  = scrollY;
   const vpBot  = scrollY + H;
-
   const composites = [];
 
-  // Top publisher image slice
   const topStart = Math.max(vpTop, 0);
   const topEnd   = Math.min(vpBot, gapTop);
   if (topEnd > topStart) {
@@ -91,7 +77,6 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH, pubCanvasH }) {
     composites.push({ input: slice, top: topStart - vpTop, left: 0 });
   }
 
-  // Bottom publisher image slice
   const botStart = Math.max(vpTop, gapBot);
   const botEnd   = Math.min(vpBot, pubCanvasH);
   if (botEnd > botStart) {
@@ -105,7 +90,7 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH, pubCanvasH }) {
     create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
   })
   .composite(composites)
-  .png()
+  .raw()  // raw RGBA — faster to pipe than PNG encode/decode
   .toBuffer();
 }
 
@@ -118,7 +103,7 @@ export async function runCompositor({
 }) {
   onProgress(5, 'Building your scene…');
 
-  // ── 1. Scale publisher images to output width ─────────────────────────────
+  // Scale publisher images to output width
   const topMeta = await sharp(publisherTopPath).metadata();
   const botMeta = await sharp(publisherBottomPath).metadata();
 
@@ -136,12 +121,10 @@ export async function runCompositor({
 
   onProgress(10, 'Building your scene…');
 
-  // ── 2. Scroll geometry ────────────────────────────────────────────────────
+  // Scroll geometry
   const gapTop    = topH;
   const maxScroll = Math.max(0, pubCanvasH - H);
-
-  // Centre the gap in the viewport during hold
-  const targetY = Math.max(0, Math.min(maxScroll,
+  const targetY   = Math.max(0, Math.min(maxScroll,
     Math.round(gapTop + PUB_GAP_H / 2 - H / 2)));
 
   const settleFrames = Math.round(MOTION.settleMs    / 1000 * FPS);
@@ -159,67 +142,58 @@ export async function runCompositor({
   for (let i = 1; i <= nOut; i++) frameScrollY.push(Math.round(targetY + easeInOutCubic(i / nOut) * (maxScroll - targetY)));
   for (let i = 0; i < tailFrames;  i++) frameScrollY.push(maxScroll);
 
-  // ── 3. Build unique overlay frames ───────────────────────────────────────
+  // Cache unique frames as raw RGBA buffers
   onProgress(15, 'Building your scene…');
 
-  const tmpDir     = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
   const frameCache = new Map();
   const uniqueYs   = [...new Set(frameScrollY)];
   let   doneUniq   = 0;
 
   for (const scrollY of uniqueYs) {
-    const fp  = path.join(tmpDir, `u_${scrollY}.png`);
     const buf = await buildFrame({
       scrollY: Math.min(scrollY, pubCanvasH - H),
       topImg: topScaled, topH,
       botImg: botScaled, botH,
       pubCanvasH,
     });
-    fs.writeFileSync(fp, buf);
-    frameCache.set(scrollY, fp);
+    frameCache.set(scrollY, buf);
     doneUniq++;
-    onProgress(15 + Math.round((doneUniq / uniqueYs.length) * 55), 'Building your scene…');
+    onProgress(15 + Math.round((doneUniq / uniqueYs.length) * 50), 'Building your scene…');
   }
 
-  const frameFiles = frameScrollY.map(y => frameCache.get(y));
+  // Free scaled images — no longer needed
+  topScaled.fill(0);
+  botScaled.fill(0);
 
-  // ── 4. ffmpeg concat list ─────────────────────────────────────────────────
-  onProgress(72, 'Encoding…');
-
-  const concatFile = path.join(tmpDir, 'frames.txt');
-  const frameDur   = (1 / FPS).toFixed(6);
-  const lines      = frameFiles.map(f => `file '${f}'\nduration ${frameDur}`);
-  lines.push(`file '${frameFiles[frameFiles.length - 1]}'`);
-  fs.writeFileSync(concatFile, lines.join('\n'));
+  onProgress(67, 'Encoding…');
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // ── 5. ffmpeg composite ───────────────────────────────────────────────────
-  // Clip: scaled to fit WITHIN creative area (decrease AR = no zoom/crop)
-  //   Scale to AD_CONTENT dimensions, pad with black to fill creative area,
-  //   then pad to full output frame at CREATIVE_TOP
-  //
-  // Ad bars (55px top + 55px bottom) are added as black padding within creative.
-  // Publisher overlay sits on top, transparent gap reveals creative below.
-
+  // Launch ffmpeg: two inputs
+  //   input 0: raw RGBA publisher overlay frames piped to stdin
+  //   input 1: ad clip WebM (looped)
+  // Filter: clip scaled+padded to creative area → publisher overlay on top
   const ffArgs = [
     '-y',
+    // Input 0: raw RGBA frames from stdin
+    '-f', 'rawvideo',
+    '-pix_fmt', 'rgba',
+    '-s', `${W}x${H}`,
+    '-r', String(FPS),
+    '-i', 'pipe:0',
+    // Input 1: ad clip looped
     '-stream_loop', '-1',
     '-t', totalDurSec.toFixed(3),
     '-i', clipPath,
-    '-f', 'concat', '-safe', '0', '-i', concatFile,
     '-filter_complex', [
-      // Scale clip to fit AD_CONTENT area (no crop — decrease AR)
-      `[0:v]scale=${W}:${AD_CONTENT_H}:force_original_aspect_ratio=decrease,` +
-        // Centre-pad to AD_CONTENT dimensions
+      // Scale clip to fit content area (no zoom), add black ad bars, pad to full frame
+      `[1:v]scale=${W}:${AD_CONTENT_H}:force_original_aspect_ratio=decrease,` +
         `pad=${W}:${AD_CONTENT_H}:(ow-iw)/2:(oh-ih)/2:color=black,` +
-        // Add 55px black bar top and bottom (the ad bars)
-        `pad=${W}:${CREATIVE_H}:0:${AD_BAR_TOP_H}:color=black,` +
-        // Pad to full output frame, creative anchored to bottom
+        `pad=${W}:${CREATIVE_H}:0:${AD_BAR_H}:color=black,` +
         `pad=${W}:${H}:0:${CREATIVE_TOP}:color=white[clip]`,
-      // Publisher overlay — RGBA, transparent gap reveals clip
-      `[1:v]format=rgba[pub]`,
-      // Composite
+      // Publisher overlay from stdin (RGBA)
+      `[0:v]format=rgba[pub]`,
+      // Composite: clip under publisher
       `[clip][pub]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
@@ -232,8 +206,27 @@ export async function runCompositor({
     outPath,
   ];
 
-  await run(FFMPEG, ffArgs);
+  const ff = spawn(FFMPEG, ffArgs, { stdio: ['pipe', 'ignore', 'pipe'] });
+  let ffErr = '';
+  ff.stderr.on('data', d => { ffErr += d.toString(); });
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  const ffDone = new Promise((res, rej) =>
+    ff.on('close', code => code === 0 ? res() : rej(new Error('ffmpeg:\n' + ffErr))));
+
+  // Pipe frames to ffmpeg stdin in order
+  for (let i = 0; i < frameScrollY.length; i++) {
+    const buf = frameCache.get(frameScrollY[i]);
+    await new Promise((res, rej) => {
+      const ok = ff.stdin.write(buf, err => err ? rej(err) : res());
+      if (!ok) ff.stdin.once('drain', res);
+    });
+    if (i % 20 === 0) {
+      onProgress(67 + Math.round((i / totalFrames) * 25), 'Encoding…');
+    }
+  }
+
+  ff.stdin.end();
+  await ffDone;
+
   onProgress(100, 'Done');
 }
