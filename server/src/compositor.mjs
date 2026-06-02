@@ -168,15 +168,12 @@ export async function runCompositor({
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
   // ── 5. ffmpeg two-layer composite ──────────────────────────────────────────
-  // Layer 1 (bottom): ad clip scaled to fill the ad slot dimensions,
-  //   padded to full 1080×1920 at the slot's hold-position Y.
-  //   During scroll the publisher overlay moves but the clip is fixed —
-  //   this is correct because the transparent gap in the publisher layer
-  //   moves to reveal/hide the clip naturally as it scrolls.
-  // Layer 2 (top): publisher PNG frames (RGBA) — transparent gap = clip shows through.
-
-  // Clip Y in the output frame = where the ad slot sits when centred (hold position)
-  const clipY = Math.max(0, adSlotTop - targetY);
+  // Layer 1 (bottom): ad clip scaled to fill the FULL output frame (1080×1920).
+  //   The publisher overlay masks everything except the transparent gap,
+  //   so only the gap region shows the clip — at whatever scroll position
+  //   the gap is at in that frame. Scaling to full frame means the clip
+  //   is always visible through the gap regardless of scroll position.
+  // Layer 2 (top): publisher PNG frames (RGBA) with transparent gap.
 
   const ffArgs = [
     '-y',
@@ -187,13 +184,12 @@ export async function runCompositor({
     // Input 1: publisher PNG frame sequence
     '-f', 'concat', '-safe', '0', '-i', concatFile,
     '-filter_complex', [
-      // Scale clip to slot dimensions, then pad to full output at slot position
-      `[0:v]scale=${AD_W}:${AD_H}:force_original_aspect_ratio=decrease,` +
-        `pad=${AD_W}:${AD_H}:(ow-iw)/2:(oh-ih)/2,` +
-        `pad=${W}:${H}:0:${clipY}[clip]`,
-      // Publisher frames scaled to output
-      `[1:v]scale=${W}:${H}:flags=lanczos,format=rgba[pub]`,
-      // Composite: clip under publisher (transparency in pub reveals clip)
+      // Scale clip to fill full output frame — publisher masks all but the gap
+      `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,` +
+        `crop=${W}:${H}[clip]`,
+      // Publisher frames — already W×H PNGs with RGBA transparency
+      `[1:v]format=rgba[pub]`,
+      // Composite: clip (bottom) + publisher overlay (top, transparent gap reveals clip)
       `[clip][pub]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
