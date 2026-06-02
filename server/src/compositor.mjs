@@ -169,31 +169,31 @@ export async function runCompositor({
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // Launch ffmpeg: two inputs
-  //   input 0: raw RGBA publisher overlay frames piped to stdin
-  //   input 1: ad clip WebM (looped)
-  // Filter: clip scaled+padded to creative area → publisher overlay on top
+  // Launch ffmpeg:
+  //   input 0: ad clip WebM (file — easier for ffmpeg as first input)
+  //   input 1: publisher overlay raw RGBA frames (piped to stdin)
+  // Filter: scale clip → composite publisher on top (transparent gap reveals clip)
   const ffArgs = [
     '-y',
-    // Input 0: raw RGBA frames from stdin
+    // Input 0: ad clip looped to full duration (file input)
+    '-stream_loop', '-1',
+    '-t', totalDurSec.toFixed(3),
+    '-i', clipPath,
+    // Input 1: publisher overlay raw RGBA from stdin
     '-f', 'rawvideo',
     '-pix_fmt', 'rgba',
     '-s', `${W}x${H}`,
     '-r', String(FPS),
     '-i', 'pipe:0',
-    // Input 1: ad clip looped
-    '-stream_loop', '-1',
-    '-t', totalDurSec.toFixed(3),
-    '-i', clipPath,
     '-filter_complex', [
-      // Scale clip to fit content area (no zoom), add black ad bars, pad to full frame
-      `[1:v]scale=${W}:${AD_CONTENT_H}:force_original_aspect_ratio=decrease,` +
+      // Scale clip to fit content area (no zoom/crop), add black ad bars, pad to full frame
+      `[0:v]scale=${W}:${AD_CONTENT_H}:force_original_aspect_ratio=decrease,` +
         `pad=${W}:${AD_CONTENT_H}:(ow-iw)/2:(oh-ih)/2:color=black,` +
         `pad=${W}:${CREATIVE_H}:0:${AD_BAR_H}:color=black,` +
         `pad=${W}:${H}:0:${CREATIVE_TOP}:color=white[clip]`,
-      // Publisher overlay from stdin (RGBA)
-      `[0:v]format=rgba[pub]`,
-      // Composite: clip under publisher
+      // Publisher overlay from stdin (RGBA — transparent gap reveals clip)
+      `[1:v]format=rgba[pub]`,
+      // Composite: clip (bottom) + publisher overlay (top)
       `[clip][pub]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
@@ -210,14 +210,25 @@ export async function runCompositor({
   let ffErr = '';
   ff.stderr.on('data', d => { ffErr += d.toString(); });
 
-  const ffDone = new Promise((res, rej) =>
-    ff.on('close', code => code === 0 ? res() : rej(new Error('ffmpeg:\n' + ffErr))));
+  // Handle EPIPE gracefully — ffmpeg closed stdin early (filter error)
+  ff.stdin.on('error', err => {
+    if (err.code !== 'EPIPE') throw err;
+    // EPIPE means ffmpeg exited — ffDone promise will reject with the error
+  });
 
-  // Pipe frames to ffmpeg stdin in order
+  const ffDone = new Promise((res, rej) =>
+    ff.on('close', code => code === 0 ? res() : rej(new Error('ffmpeg failed:\n' + ffErr))));
+
+  // Pipe publisher overlay frames to ffmpeg stdin
   for (let i = 0; i < frameScrollY.length; i++) {
     const buf = frameCache.get(frameScrollY[i]);
+    // Check ffmpeg is still running before each write
+    if (ff.exitCode !== null) break;
     await new Promise((res, rej) => {
-      const ok = ff.stdin.write(buf, err => err ? rej(err) : res());
+      const ok = ff.stdin.write(buf, err => {
+        if (err && err.code !== 'EPIPE') rej(err);
+        else res();
+      });
       if (!ok) ff.stdin.once('drain', res);
     });
     if (i % 20 === 0) {
