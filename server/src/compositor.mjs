@@ -142,30 +142,7 @@ export async function runCompositor({
   for (let i = 1; i <= nOut; i++) frameScrollY.push(Math.round(targetY + easeInOutCubic(i / nOut) * (maxScroll - targetY)));
   for (let i = 0; i < tailFrames;  i++) frameScrollY.push(maxScroll);
 
-  // Cache unique frames as raw RGBA buffers
   onProgress(15, 'Building your scene…');
-
-  const frameCache = new Map();
-  const uniqueYs   = [...new Set(frameScrollY)];
-  let   doneUniq   = 0;
-
-  for (const scrollY of uniqueYs) {
-    const buf = await buildFrame({
-      scrollY: Math.min(scrollY, pubCanvasH - H),
-      topImg: topScaled, topH,
-      botImg: botScaled, botH,
-      pubCanvasH,
-    });
-    frameCache.set(scrollY, buf);
-    doneUniq++;
-    onProgress(15 + Math.round((doneUniq / uniqueYs.length) * 50), 'Building your scene…');
-  }
-
-  // Free scaled images — no longer needed
-  topScaled.fill(0);
-  botScaled.fill(0);
-
-  onProgress(67, 'Encoding…');
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
@@ -224,11 +201,15 @@ export async function runCompositor({
   const ffDone = new Promise((res, rej) =>
     ff.on('close', code => code === 0 ? res() : rej(new Error('ffmpeg failed:\n' + ffErr))));
 
-  // Pipe publisher overlay frames to ffmpeg stdin
+  // Build and pipe each frame on demand — no cache, ~50MB peak RAM
   for (let i = 0; i < frameScrollY.length; i++) {
-    const buf = frameCache.get(frameScrollY[i]);
-    // Check ffmpeg is still running before each write
     if (ff.exitCode !== null) break;
+    const buf = await buildFrame({
+      scrollY: Math.min(frameScrollY[i], pubCanvasH - H),
+      topImg: topScaled, topH,
+      botImg: botScaled, botH,
+      pubCanvasH,
+    });
     await new Promise((res, rej) => {
       const ok = ff.stdin.write(buf, err => {
         if (err && err.code !== 'EPIPE') rej(err);
@@ -236,8 +217,8 @@ export async function runCompositor({
       });
       if (!ok) ff.stdin.once('drain', res);
     });
-    if (i % 20 === 0) {
-      onProgress(67 + Math.round((i / totalFrames) * 25), 'Encoding…');
+    if (i % 10 === 0) {
+      onProgress(15 + Math.round((i / totalFrames) * 80), 'Building your scene…');
     }
   }
 
