@@ -167,9 +167,9 @@ export async function runCompositor({
       // Step 2: crop width to W if wider, pad width to W if narrower
       // Step 3: pad height to CREATIVE_H adding AD_BAR_H black bars top+bottom
       // Step 4: pad to full output frame, CREATIVE_TOP white at top
-      `[0:v]scale=-2:${AD_CONTENT_H},` +
-        `crop='min(iw,${W})':${AD_CONTENT_H},` +
-        `pad=${W}:${AD_CONTENT_H}:(ow-iw)/2:0:color=black,` +
+      // Scale clip to fill full width edge-to-edge, centre-crop height to content area
+      `[0:v]scale=${W}:-2,` +
+        `crop=${W}:${AD_CONTENT_H}:0:(ih-${AD_CONTENT_H})/2,` +
         `pad=${W}:${CREATIVE_H}:0:${AD_BAR_H}:color=black,` +
         `pad=${W}:${H}:0:${CREATIVE_TOP}:color=white[clip]`,
       // Publisher overlay from stdin (RGBA — transparent gap reveals clip)

@@ -27,7 +27,12 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
   f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
   f.searchParams.set('rp._useSnapping', '1');
   f.searchParams.set('rp._snappingFraction', '0.5');
-  if (standalone) f.searchParams.set('rp.standalonePreview', '1');
+  if (standalone) {
+    f.searchParams.set('rp.standalonePreview', '1');
+  } else {
+    // Recording mode — remove ad bars using Celtra native parameter
+    f.searchParams.set('rp.removeAdvertisementBars', '1');
+  }
   return f.toString();
 }
 
