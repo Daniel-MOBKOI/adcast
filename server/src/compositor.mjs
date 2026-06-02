@@ -1,18 +1,15 @@
 /**
- * Compositor v4 — Sharp + ffmpeg only. No Playwright, no browser.
+ * Compositor v5 — pixel-perfect native dimensions from mockup masters.
  *
- * Pipeline:
- *   1. Sharp stitches top publisher image + transparent gap + bottom publisher
- *      image into one tall RGBA PNG (the "scene canvas").
- *   2. Per-frame, Sharp crops a 1080×1920 slice of the scene canvas at the
- *      correct scroll Y — instant, no browser round-trips.
- *   3. ffmpeg receives:
- *        Input 0: WebM ad clip (looped, full duration) — background layer
- *        Input 1: PNG frame sequence (publisher overlay with transparent gap)
- *      Filter: overlay publisher on top of clip — transparency reveals clip
- *      Encode: H.264 MP4
+ * Output: 1179×2556px H.264 MP4 (exact export canvas size from mockup)
  *
- * No Playwright needed → runs on Render Starter (512MB RAM, $7/mo).
+ * Layer stack (bottom to top):
+ *   1. Creative/ad clip — 1179×2384px, anchored to BOTTOM at Y=172
+ *   2. Publisher overlay — 1024×8000px scaled to 1179px wide, scrolls over top
+ *      Gap in publisher: rows 3478-5496 (2019px @ 1024w → 2325px @ 1179w)
+ *      Gap reveals creative below as publisher scrolls
+ *
+ * No Playwright — Sharp handles all image compositing, ffmpeg encodes.
  */
 
 import fs   from 'node:fs';
@@ -27,14 +24,28 @@ import ffprobeStatic from 'ffprobe-static';
 const FFMPEG  = ffmpegStatic  || 'ffmpeg';
 const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Output frame — exact export canvas from mockup
+const W   = 1179;
+const H   = 2556;
+const FPS = 30;
 
-// Output spec
-const W = 1080, H = 1920, FPS = 30;
+// Creative layer — anchored to bottom of output frame
+const CREATIVE_W   = 1179;
+const CREATIVE_H   = 2384;
+const CREATIVE_TOP = H - CREATIVE_H; // 172px
 
-// Ad slot — full output width
-const AD_W = W;
-const AD_H = 950;
+// Publisher overlay native dimensions
+const PUB_NATIVE_W = 1024;
+const PUB_NATIVE_H = 8000;
+const PUB_GAP_START_NATIVE = 3478; // row where gap starts in native publisher
+const PUB_GAP_END_NATIVE   = 5496; // row where gap ends in native publisher
+
+// Publisher scaled to output width
+const PUB_SCALE   = W / PUB_NATIVE_W; // 1179/1024 = 1.1514
+const PUB_H_SCALED = Math.round(PUB_NATIVE_H * PUB_SCALE);
+const PUB_GAP_START = Math.round(PUB_GAP_START_NATIVE * PUB_SCALE);
+const PUB_GAP_END   = Math.round(PUB_GAP_END_NATIVE   * PUB_SCALE);
+const PUB_GAP_H     = PUB_GAP_END - PUB_GAP_START;
 
 // Motion config (ms)
 const MOTION = {
@@ -61,11 +72,10 @@ export async function runCompositor({
 }) {
   onProgress(5, 'Building your scene…');
 
-  // ── 1. Stitch publisher scene canvas ──────────────────────────────────────
-  // Scale both images to output width, compose vertically as:
-  //   [top image scaled to W]
-  //   [AD_H px transparent gap]  ← ad clip shows through here
-  //   [bottom image scaled to W]
+  // ── 1. Build publisher scene canvas ───────────────────────────────────────
+  // Scale both publisher images to W=1179px wide.
+  // Compose with a transparent gap of PUB_GAP_H px between them.
+  // This canvas scrolls over the fixed creative layer.
 
   const topMeta = await sharp(publisherTopPath).metadata();
   const botMeta = await sharp(publisherBottomPath).metadata();
@@ -81,34 +91,34 @@ export async function runCompositor({
     .resize(W, botH, { fit: 'fill' })
     .toBuffer();
 
-  // Total canvas height and ad slot position
-  const canvasH   = topH + AD_H + botH;
-  const adSlotTop = topH;
+  // Publisher canvas: top + transparent gap + bottom
+  const pubCanvasH = topH + PUB_GAP_H + botH;
+  const pubGapTop  = topH;
 
-  // Compose RGBA canvas: top + transparent gap + bottom
-  const sceneCanvas = await sharp({
+  const pubCanvas = await sharp({
     create: {
       width:     W,
-      height:    canvasH,
+      height:    pubCanvasH,
       channels:  4,
       background:{ r: 0, g: 0, b: 0, alpha: 0 },
     }
   })
   .composite([
     { input: topResized, top: 0,                left: 0 },
-    { input: botResized, top: adSlotTop + AD_H, left: 0 },
+    { input: botResized, top: pubGapTop + PUB_GAP_H, left: 0 },
   ])
   .png()
   .toBuffer();
 
   onProgress(12, 'Building your scene…');
 
-  // ── 2. Build scroll positions ──────────────────────────────────────────────
-  const maxScroll = Math.max(0, canvasH - H);
-
-  // Scroll target: ad slot centred in viewport
-  const targetY = Math.max(0,
-    Math.min(maxScroll, Math.round(adSlotTop + AD_H / 2 - H / 2)));
+  // ── 2. Scroll geometry ─────────────────────────────────────────────────────
+  // We scroll the publisher canvas so the gap centres over the output viewport.
+  // During hold: gap centre = viewport centre (H/2)
+  // targetScrollY = pubGapTop + PUB_GAP_H/2 - H/2
+  const maxScroll = Math.max(0, pubCanvasH - H);
+  const targetY   = Math.max(0, Math.min(maxScroll,
+    Math.round(pubGapTop + PUB_GAP_H / 2 - H / 2)));
 
   const settleFrames = Math.round(MOTION.settleMs    / 1000 * FPS);
   const holdFrames   = Math.round(MOTION.holdMs      / 1000 * FPS);
@@ -118,7 +128,7 @@ export async function runCompositor({
   const totalFrames  = settleFrames + nIn + holdFrames + nOut + tailFrames;
   const totalDurSec  = totalFrames / FPS;
 
-  // Per-frame scroll Y values
+  // Per-frame scroll Y
   const frameScrollY = [];
   for (let i = 0; i < settleFrames; i++) frameScrollY.push(0);
   for (let i = 1; i <= nIn;  i++) frameScrollY.push(Math.round(easeInOutCubic(i / nIn)  * targetY));
@@ -126,20 +136,18 @@ export async function runCompositor({
   for (let i = 1; i <= nOut; i++) frameScrollY.push(Math.round(targetY + easeInOutCubic(i / nOut) * (maxScroll - targetY)));
   for (let i = 0; i < tailFrames;  i++) frameScrollY.push(maxScroll);
 
-  // ── 3. Crop publisher frames ───────────────────────────────────────────────
+  // ── 3. Crop publisher overlay frames ──────────────────────────────────────
   onProgress(15, 'Building your scene…');
 
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
-
-  // Cache by scrollY — static segments reuse the same crop
+  const tmpDir    = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
   const cropCache = new Map();
   const uniqueYs  = [...new Set(frameScrollY)];
   let   doneUniq  = 0;
 
-  // Pre-compute all unique crops
   for (const scrollY of uniqueYs) {
-    const buf = await sharp(sceneCanvas)
-      .extract({ left: 0, top: Math.min(scrollY, canvasH - H), width: W, height: H })
+    const clampedY = Math.min(scrollY, pubCanvasH - H);
+    const buf = await sharp(pubCanvas)
+      .extract({ left: 0, top: Math.max(0, clampedY), width: W, height: H })
       .png()
       .toBuffer();
     cropCache.set(scrollY, buf);
@@ -148,7 +156,6 @@ export async function runCompositor({
     onProgress(pct, 'Building your scene…');
   }
 
-  // Write all frames (reusing cached buffers for static segments)
   const frameFiles = [];
   for (let i = 0; i < frameScrollY.length; i++) {
     const fp = path.join(tmpDir, `f_${i.toString().padStart(5, '0')}.png`);
@@ -167,29 +174,28 @@ export async function runCompositor({
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // ── 5. ffmpeg two-layer composite ──────────────────────────────────────────
-  // Layer 1 (bottom): ad clip scaled to fill the FULL output frame (1080×1920).
-  //   The publisher overlay masks everything except the transparent gap,
-  //   so only the gap region shows the clip — at whatever scroll position
-  //   the gap is at in that frame. Scaling to full frame means the clip
-  //   is always visible through the gap regardless of scroll position.
-  // Layer 2 (top): publisher PNG frames (RGBA) with transparent gap.
+  // ── 5. ffmpeg composite ────────────────────────────────────────────────────
+  // Layer 1 (bottom): ad clip scaled to CREATIVE dimensions, padded to output frame
+  //   Creative: 1179×2384, top at Y=172 (anchored to bottom of 1179×2556 frame)
+  // Layer 2 (top): publisher overlay frames (RGBA, transparent gap reveals clip)
 
   const ffArgs = [
     '-y',
-    // Input 0: ad clip, looped to full duration
+    // Input 0: ad clip looped to full duration
     '-stream_loop', '-1',
     '-t', totalDurSec.toFixed(3),
     '-i', clipPath,
-    // Input 1: publisher PNG frame sequence
+    // Input 1: publisher overlay frame sequence
     '-f', 'concat', '-safe', '0', '-i', concatFile,
     '-filter_complex', [
-      // Scale clip to fill full output frame — publisher masks all but the gap
-      `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,` +
-        `crop=${W}:${H}[clip]`,
-      // Publisher frames — already W×H PNGs with RGBA transparency
+      // Scale clip to creative dimensions (fill, centre-crop if needed)
+      `[0:v]scale=${CREATIVE_W}:${CREATIVE_H}:force_original_aspect_ratio=increase,` +
+        `crop=${CREATIVE_W}:${CREATIVE_H},` +
+        // Pad to full output frame, creative anchored to bottom at CREATIVE_TOP
+        `pad=${W}:${H}:0:${CREATIVE_TOP}:color=black[clip]`,
+      // Publisher overlay frames — ensure RGBA
       `[1:v]format=rgba[pub]`,
-      // Composite: clip (bottom) + publisher overlay (top, transparent gap reveals clip)
+      // Composite: clip under publisher (gap in publisher reveals clip)
       `[clip][pub]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
@@ -204,7 +210,6 @@ export async function runCompositor({
 
   await run(FFMPEG, ffArgs);
 
-  // ── Cleanup ────────────────────────────────────────────────────────────────
   fs.rmSync(tmpDir, { recursive: true, force: true });
   onProgress(100, 'Done');
 }
