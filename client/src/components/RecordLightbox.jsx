@@ -9,34 +9,30 @@ function fmtTime(s) {
 /**
  * RecordLightbox — fullscreen overlay for clean ad recording.
  *
- * - Renders the Celtra iframe WITHOUT standalonePreview=1, removing the
- *   "Advertisement" and "Scroll to continue" bars.
- * - Scales the iframe to fit 90vh while maintaining the 9:19.5 ad aspect ratio.
- * - Exposes the iframe element via iframeRef for cropTo() element capture.
- * - Minimal UI: just a record/stop button and timer — nothing else in frame.
+ * - iframe loads Celtra WITHOUT standalonePreview — no ad bars
+ * - Recording timer sits OUTSIDE the iframe capture area
+ * - iframe sized to 9:19.5 aspect ratio, fits 90vh
  */
 export default function RecordLightbox({
-  iframeUrl,       // URL without standalonePreview — pure creative
-  recorderState,   // 'idle' | 'requesting' | 'recording' | 'done' | 'error'
+  iframeUrl,
+  recorderState,
   duration,
   error,
-  iframeRef,       // passed in so parent can use it for cropTo()
+  iframeRef,
   onRecord,
   onStop,
   onClose,
 }) {
-  const isRecording = recorderState === 'recording';
+  const isRecording  = recorderState === 'recording';
   const isRequesting = recorderState === 'requesting';
-  const isDone = recorderState === 'done';
+  const isDone       = recorderState === 'done';
 
-  // Close on Escape
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape' && !isRecording) onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [isRecording, onClose]);
 
-  // Auto-close when recording finishes
   useEffect(() => {
     if (isDone) onClose();
   }, [isDone, onClose]);
@@ -45,15 +41,23 @@ export default function RecordLightbox({
     <div className={styles.overlay}>
       <div className={styles.inner}>
 
-        {/* Header bar — minimal, outside the recording area */}
+        {/* ── Header — entirely outside capture area ── */}
         <div className={styles.header}>
-          <span className={styles.headerLabel}>
-            {isRecording
-              ? `Recording ${fmtTime(duration)}`
-              : isRequesting
-              ? 'Waiting for permission…'
-              : 'Ready to record — interact with the ad, then hit record'}
-          </span>
+          <div className={styles.headerLeft}>
+            {isRecording && (
+              <div className={styles.recPill}>
+                <span className={styles.recDot} />
+                {fmtTime(duration)}
+              </div>
+            )}
+            {!isRecording && (
+              <span className={styles.headerLabel}>
+                {isRequesting
+                  ? 'Waiting for permission…'
+                  : 'Interact with the ad, then hit record'}
+              </span>
+            )}
+          </div>
           <button
             className={styles.closeBtn}
             onClick={onClose}
@@ -64,14 +68,8 @@ export default function RecordLightbox({
           </button>
         </div>
 
-        {/* The ad frame — viewport-relative sizing, 9:19.5 aspect ratio */}
+        {/* ── Ad iframe — only this element is captured ── */}
         <div className={styles.frameWrap}>
-          {isRecording && (
-            <div className={styles.recBadge}>
-              <span className={styles.recDot} />
-              {fmtTime(duration)}
-            </div>
-          )}
           <iframe
             ref={iframeRef}
             src={iframeUrl}
@@ -84,7 +82,7 @@ export default function RecordLightbox({
           />
         </div>
 
-        {/* Controls — outside the recording area */}
+        {/* ── Controls — entirely outside capture area ── */}
         <div className={styles.controls}>
           {error && <span className={styles.errorMsg}>{error}</span>}
           <button
@@ -100,8 +98,7 @@ export default function RecordLightbox({
           </button>
           {!isRecording && (
             <p className={styles.hint}>
-              Interact with the ad above first, then hit record when ready.
-              Hit stop when done — the clip will be saved automatically.
+              Hit stop when done — clip saves automatically.
             </p>
           )}
         </div>

@@ -1,11 +1,18 @@
 /**
- * Compositor v6 — memory-efficient per-frame compositing.
+ * Compositor v7 — pixel-perfect positioning, memory-efficient, fast.
  *
- * Never loads the full publisher canvas into memory.
- * Each frame is built on-demand by compositing only the visible slices
- * of the top/bottom publisher images directly into a W×H output frame.
+ * Output: 1179×2556px H.264 MP4
  *
- * Peak RAM: ~30MB per frame vs ~400MB for the full canvas approach.
+ * Layer stack (bottom to top):
+ *   1. Creative/ad clip — 1179×2384px anchored to BOTTOM (top at Y=172)
+ *      Top ad bar:    Y=172, H=55px (black, part of creative)
+ *      Bottom ad bar: Y=2501, H=55px (black, part of creative)
+ *   2. Publisher overlay — scrolls over the top, transparent gap=2384px
+ *      reveals the creative below
+ *
+ * Speed optimisation: unique frames only (~198 vs 381).
+ * Memory optimisation: per-frame slice compositing, no giant canvas.
+ * Zoom fix: clip fits within creative area (decrease AR), padded not cropped.
  */
 
 import fs   from 'node:fs';
@@ -20,21 +27,32 @@ import ffprobeStatic from 'ffprobe-static';
 const FFMPEG  = ffmpegStatic  || 'ffmpeg';
 const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
-// Output frame — exact export canvas from mockup masters
+// ── Output frame ─────────────────────────────────────────────────────────────
 const W   = 1179;
 const H   = 2556;
 const FPS = 30;
 
-// Creative layer — anchored to bottom of output frame
-const CREATIVE_H   = 2384;
-const CREATIVE_TOP = H - CREATIVE_H; // 172px from top
+// ── Creative layer ────────────────────────────────────────────────────────────
+// Anchored to BOTTOM of output frame
+const CREATIVE_H   = 2384; // from Creative_Unit_Layer_0.jpg
+const CREATIVE_TOP = H - CREATIVE_H; // 172px
 
-// Publisher gap = scaled from Publisher_Full_Size_Overlay.png measurement
-// Gap: 2019px at 1024px wide → scaled to W=1179px wide
-const PUB_SCALE   = W / 1024;
-const PUB_GAP_H   = Math.round(2019 * PUB_SCALE); // 2325px
+// Ad bars — 55px each, part of creative layer
+const AD_BAR_TOP_Y = CREATIVE_TOP;          // 172px — flush under iPhone UI
+const AD_BAR_TOP_H = 55;
+const AD_BAR_BOT_Y = H - 55;               // 2501px — flush at bottom
+const AD_BAR_BOT_H = 55;
 
-// Motion config (ms)
+// Visible ad content area (between the two bars)
+const AD_CONTENT_Y = AD_BAR_TOP_Y + AD_BAR_TOP_H; // 227px
+const AD_CONTENT_H = AD_BAR_BOT_Y - AD_CONTENT_Y;  // 2274px
+
+// ── Publisher gap ─────────────────────────────────────────────────────────────
+// Gap in publisher overlay = full creative height = 2384px
+// (so both ad bars are visible when the gap is centred in the viewport)
+const PUB_GAP_H = CREATIVE_H; // 2384px
+
+// ── Motion ────────────────────────────────────────────────────────────────────
 const MOTION = {
   settleMs:    600,
   scrollInMs:  3500,
@@ -51,76 +69,44 @@ const run = (cmd, args) => new Promise((res, rej) =>
     e ? rej(new Error(se || e.message)) : res(o)));
 
 /**
- * Build one W×H publisher overlay frame at a given scroll position.
- *
- * The virtual publisher canvas layout (top to bottom):
- *   [topH px]      — publisher top image scaled to W
- *   [PUB_GAP_H px] — transparent gap (ad slot)
- *   [botH px]      — publisher bottom image scaled to W
- *
- * For each scrollY, we crop a W×H window from this virtual canvas,
- * compositing only the slices we actually need.
+ * Build one W×H publisher overlay frame at scrollY.
+ * Only the visible slices of top/bottom images are composited.
+ * Gap region is transparent — reveals creative below.
  */
-async function buildFrame({
-  scrollY,
-  topImg, topH,
-  botImg, botH,
-  pubCanvasH,
-}) {
+async function buildFrame({ scrollY, topImg, topH, botImg, botH, pubCanvasH }) {
   const gapTop = topH;
   const gapBot = topH + PUB_GAP_H;
+  const vpTop  = scrollY;
+  const vpBot  = scrollY + H;
 
-  // Viewport: [scrollY, scrollY + H) in virtual canvas coords
-  const vpTop = scrollY;
-  const vpBot = scrollY + H;
-
-  // Composites to place onto the W×H output frame
   const composites = [];
 
-  // ── Top image slice ──────────────────────────────────────────────────────
-  // Visible if viewport overlaps [0, topH)
-  const topVisible_start = Math.max(vpTop, 0);
-  const topVisible_end   = Math.min(vpBot, gapTop);
-  if (topVisible_end > topVisible_start) {
-    const srcY  = topVisible_start;           // row in top image
-    const srcH  = topVisible_end - topVisible_start;
-    const dstY  = topVisible_start - vpTop;   // row in output frame
+  // Top publisher image slice
+  const topStart = Math.max(vpTop, 0);
+  const topEnd   = Math.min(vpBot, gapTop);
+  if (topEnd > topStart) {
     const slice = await sharp(topImg)
-      .extract({ left: 0, top: srcY, width: W, height: srcH })
+      .extract({ left: 0, top: topStart, width: W, height: topEnd - topStart })
       .toBuffer();
-    composites.push({ input: slice, top: dstY, left: 0 });
+    composites.push({ input: slice, top: topStart - vpTop, left: 0 });
   }
 
-  // ── Gap is transparent — nothing to composite ────────────────────────────
-
-  // ── Bottom image slice ───────────────────────────────────────────────────
-  // Visible if viewport overlaps [gapBot, pubCanvasH)
-  const botVisible_start = Math.max(vpTop, gapBot);
-  const botVisible_end   = Math.min(vpBot, pubCanvasH);
-  if (botVisible_end > botVisible_start) {
-    const srcY  = botVisible_start - gapBot;  // row in bottom image
-    const srcH  = botVisible_end - botVisible_start;
-    const dstY  = botVisible_start - vpTop;   // row in output frame
+  // Bottom publisher image slice
+  const botStart = Math.max(vpTop, gapBot);
+  const botEnd   = Math.min(vpBot, pubCanvasH);
+  if (botEnd > botStart) {
     const slice = await sharp(botImg)
-      .extract({ left: 0, top: srcY, width: W, height: srcH })
+      .extract({ left: 0, top: botStart - gapBot, width: W, height: botEnd - botStart })
       .toBuffer();
-    composites.push({ input: slice, top: dstY, left: 0 });
+    composites.push({ input: slice, top: botStart - vpTop, left: 0 });
   }
 
-  // Build output frame: transparent base + composited slices
-  const frame = await sharp({
-    create: {
-      width:     W,
-      height:    H,
-      channels:  4,
-      background:{ r: 0, g: 0, b: 0, alpha: 0 },
-    }
+  return sharp({
+    create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
   })
   .composite(composites)
   .png()
   .toBuffer();
-
-  return frame;
 }
 
 export async function runCompositor({
@@ -132,14 +118,13 @@ export async function runCompositor({
 }) {
   onProgress(5, 'Building your scene…');
 
-  // ── 1. Get publisher image dimensions ─────────────────────────────────────
+  // ── 1. Scale publisher images to output width ─────────────────────────────
   const topMeta = await sharp(publisherTopPath).metadata();
   const botMeta = await sharp(publisherBottomPath).metadata();
 
   const topH = Math.round(topMeta.height * (W / topMeta.width));
   const botH = Math.round(botMeta.height * (W / botMeta.width));
 
-  // Pre-scale both images to W once — reused for every frame slice
   const topScaled = await sharp(publisherTopPath)
     .resize(W, topH, { fit: 'fill' })
     .toBuffer();
@@ -151,10 +136,12 @@ export async function runCompositor({
 
   onProgress(10, 'Building your scene…');
 
-  // ── 2. Scroll geometry ─────────────────────────────────────────────────────
+  // ── 2. Scroll geometry ────────────────────────────────────────────────────
   const gapTop    = topH;
   const maxScroll = Math.max(0, pubCanvasH - H);
-  const targetY   = Math.max(0, Math.min(maxScroll,
+
+  // Centre the gap in the viewport during hold
+  const targetY = Math.max(0, Math.min(maxScroll,
     Math.round(gapTop + PUB_GAP_H / 2 - H / 2)));
 
   const settleFrames = Math.round(MOTION.settleMs    / 1000 * FPS);
@@ -172,19 +159,18 @@ export async function runCompositor({
   for (let i = 1; i <= nOut; i++) frameScrollY.push(Math.round(targetY + easeInOutCubic(i / nOut) * (maxScroll - targetY)));
   for (let i = 0; i < tailFrames;  i++) frameScrollY.push(maxScroll);
 
-  // ── 3. Build frames per unique scroll position ────────────────────────────
+  // ── 3. Build unique overlay frames ───────────────────────────────────────
   onProgress(15, 'Building your scene…');
 
-  const tmpDir    = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
-  const frameCache = new Map(); // scrollY → file path (for repeated frames)
-  const uniqueYs  = [...new Set(frameScrollY)];
-  let   doneUniq  = 0;
+  const tmpDir     = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
+  const frameCache = new Map();
+  const uniqueYs   = [...new Set(frameScrollY)];
+  let   doneUniq   = 0;
 
-  // Build one PNG per unique scroll Y
   for (const scrollY of uniqueYs) {
-    const fp = path.join(tmpDir, `u_${scrollY}.png`);
+    const fp  = path.join(tmpDir, `u_${scrollY}.png`);
     const buf = await buildFrame({
-      scrollY,
+      scrollY: Math.min(scrollY, pubCanvasH - H),
       topImg: topScaled, topH,
       botImg: botScaled, botH,
       pubCanvasH,
@@ -192,17 +178,12 @@ export async function runCompositor({
     fs.writeFileSync(fp, buf);
     frameCache.set(scrollY, fp);
     doneUniq++;
-    const pct = 15 + Math.round((doneUniq / uniqueYs.length) * 55);
-    onProgress(pct, 'Building your scene…');
+    onProgress(15 + Math.round((doneUniq / uniqueYs.length) * 55), 'Building your scene…');
   }
 
-  // Write all frame files (pointing to cached unique frames)
-  const frameFiles = [];
-  for (let i = 0; i < frameScrollY.length; i++) {
-    frameFiles.push(frameCache.get(frameScrollY[i]));
-  }
+  const frameFiles = frameScrollY.map(y => frameCache.get(y));
 
-  // ── 4. Write ffmpeg concat list ────────────────────────────────────────────
+  // ── 4. ffmpeg concat list ─────────────────────────────────────────────────
   onProgress(72, 'Encoding…');
 
   const concatFile = path.join(tmpDir, 'frames.txt');
@@ -213,9 +194,13 @@ export async function runCompositor({
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // ── 5. ffmpeg composite ────────────────────────────────────────────────────
-  // Creative clip: scaled to CREATIVE dimensions, padded to full output at CREATIVE_TOP
-  // Publisher overlay: RGBA frames with transparent gap revealing the clip below
+  // ── 5. ffmpeg composite ───────────────────────────────────────────────────
+  // Clip: scaled to fit WITHIN creative area (decrease AR = no zoom/crop)
+  //   Scale to AD_CONTENT dimensions, pad with black to fill creative area,
+  //   then pad to full output frame at CREATIVE_TOP
+  //
+  // Ad bars (55px top + 55px bottom) are added as black padding within creative.
+  // Publisher overlay sits on top, transparent gap reveals creative below.
 
   const ffArgs = [
     '-y',
@@ -224,10 +209,17 @@ export async function runCompositor({
     '-i', clipPath,
     '-f', 'concat', '-safe', '0', '-i', concatFile,
     '-filter_complex', [
-      `[0:v]scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,` +
-        `crop=${W}:${CREATIVE_H},` +
-        `pad=${W}:${H}:0:${CREATIVE_TOP}:color=black[clip]`,
+      // Scale clip to fit AD_CONTENT area (no crop — decrease AR)
+      `[0:v]scale=${W}:${AD_CONTENT_H}:force_original_aspect_ratio=decrease,` +
+        // Centre-pad to AD_CONTENT dimensions
+        `pad=${W}:${AD_CONTENT_H}:(ow-iw)/2:(oh-ih)/2:color=black,` +
+        // Add 55px black bar top and bottom (the ad bars)
+        `pad=${W}:${CREATIVE_H}:0:${AD_BAR_TOP_H}:color=black,` +
+        // Pad to full output frame, creative anchored to bottom
+        `pad=${W}:${H}:0:${CREATIVE_TOP}:color=white[clip]`,
+      // Publisher overlay — RGBA, transparent gap reveals clip
       `[1:v]format=rgba[pub]`,
+      // Composite
       `[clip][pub]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
