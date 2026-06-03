@@ -1,12 +1,13 @@
 import styles from './StepBar.module.css';
 
-const STEPS = ['Record', 'Publisher', 'Export'];
+const STEPS = ['Record', 'Trim', 'Publisher', 'Export'];
 
 export default function StepBar({ step, onStep, clipReady, publisherReady }) {
   function canGoTo(n) {
     if (n === 1) return true;
     if (n === 2) return clipReady;
-    if (n === 3) return clipReady && publisherReady;
+    if (n === 3) return clipReady;
+    if (n === 4) return clipReady && publisherReady;
     return false;
   }
 
@@ -14,8 +15,8 @@ export default function StepBar({ step, onStep, clipReady, publisherReady }) {
     <div className={styles.bar}>
       {STEPS.map((label, i) => {
         const n = i + 1;
-        const active = step === n;
-        const done = step > n;
+        const active  = step === n;
+        const done    = step > n;
         const enabled = canGoTo(n);
         return (
           <button
@@ -24,9 +25,7 @@ export default function StepBar({ step, onStep, clipReady, publisherReady }) {
             onClick={() => enabled && onStep(n)}
             disabled={!enabled}
           >
-            <span className={styles.num}>
-              {done ? '✓' : n}
-            </span>
+            <span className={styles.num}>{done ? '✓' : n}</span>
             {label}
           </button>
         );

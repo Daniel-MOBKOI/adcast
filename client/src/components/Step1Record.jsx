@@ -1,20 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import TrimModal from './TrimModal.jsx';
 import { useRecorder } from '../hooks/useRecorder.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
 import RecordLightbox from './RecordLightbox.jsx';
 import styles from './StepLayout.module.css';
 
-function fmtTime(s) {
-  const m = Math.floor(s / 60);
-  return m + ':' + String(s % 60).padStart(2, '0');
-}
-
-/**
- * Build the Celtra preview URL.
- * standalonePreview=1 → used in the phone frame preview (shows ad bars).
- * standalonePreview omitted → used in the recording lightbox (pure creative).
- */
 function creativeFrameUrl(input, { standalone = true } = {}) {
   if (!input) return '';
   let id = input.trim();
@@ -37,14 +26,14 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
   return f.toString();
 }
 
-export default function Step1Record({ clipBlob, onClip, onNext }) {
-  const [celtraUrl, setCeltraUrl] = useState('');
+export default function Step1Record({ onRecordingDone }) {
+  const [celtraUrl, setCeltraUrl]     = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [trimOpen, setTrimOpen] = useState(false);
   const { state, duration, error, blob, requestStream, beginRecording, stop, reset } = useRecorder();
+  const lightboxIframeRef = useRef(null);
+  const prevStateRef      = useRef('idle');
 
-  // Open lightbox once stream permission is granted (no popup disruption)
-  const prevStateRef = useRef('idle');
+  // Open lightbox once stream permission granted
   useEffect(() => {
     if (prevStateRef.current !== 'streamReady' && state === 'streamReady') {
       setLightboxOpen(true);
@@ -52,15 +41,13 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
     prevStateRef.current = state;
   }, [state]);
 
-  // Ref to the iframe inside the lightbox — passed to cropTo()
-  const lightboxIframeRef = useRef(null);
-
-  // Preview URL (with standalone chrome) — shown in phone frame
-  const previewUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: true }) : null;
-
-  // Recording URL — direct Celtra embed (no proxy, proxy breaks Celtra JS)
-  // Touch emulation handled by AdCast Recorder Chrome extension
-  const recordUrl = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: false }) : null;
+  // When recording finishes, hand off to App and go to Step 2
+  useEffect(() => {
+    if (state === 'done' && blob) {
+      setLightboxOpen(false);
+      onRecordingDone(blob, duration);
+    }
+  }, [state, blob]);
 
   function handleReload() {
     const u = celtraUrl;
@@ -69,37 +56,17 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
   }
 
   async function handleOpenLightbox() {
-    reset(); // clear any previous recording
-    await requestStream(); // fires permission popup BEFORE lightbox opens
-    // lightbox opens via useEffect watching state (see below)
+    reset();
+    await requestStream();
   }
 
   function handleCloseLightbox() {
-    if (state === 'recording') return; // don't allow close mid-recording
+    if (state === 'recording') return;
     setLightboxOpen(false);
   }
 
-  function handleRecord() {
-    beginRecording(lightboxIframeRef);
-  }
-
-  // When recording finishes, open trim modal (lightbox auto-closes via useEffect)
-  if (state === 'done' && blob && !trimOpen && blob !== clipBlob) {
-    setTrimOpen(true);
-  }
-
-  function handleTrimConfirm(trimStart, trimEnd) {
-    setTrimOpen(false);
-    onClip(blob, trimEnd - trimStart, trimStart, trimEnd);
-  }
-
-  function handleTrimReRecord() {
-    setTrimOpen(false);
-    reset();
-    setLightboxOpen(true);
-  }
-
-  const clipReady = !!clipBlob || (state === 'done' && blob);
+  const previewUrl  = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: true })  : null;
+  const recordUrl   = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: false }) : null;
   const hasCreative = !!celtraUrl.trim() && !!previewUrl;
 
   return (
@@ -130,37 +97,11 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
 
           <div className={styles.divider} />
 
-          {!clipReady && (
-            <div className={styles.infoBox}>
-              Preview the ad in the phone frame to check it looks right. When
-              ready, hit <strong>Open recorder</strong> to capture your session
-              in a clean full-screen view.
-            </div>
-          )}
-
-          {clipReady && (
-            <>
-              <div className={styles.clipCard}>
-                <div className={styles.clipLabel}>Clip ready</div>
-                <div className={styles.metaList}>
-                  <div className={styles.metaRow}>
-                    <span className={styles.metaKey}>Duration</span>
-                    <span className={styles.metaVal}>{fmtTime(duration)}</span>
-                  </div>
-                  <div className={styles.metaRow}>
-                    <span className={styles.metaKey}>Format</span>
-                    <span className={styles.metaVal}>WebM</span>
-                  </div>
-                </div>
-                <button className={styles.textBtn} onClick={() => { reset(); setLightboxOpen(false); }}>
-                  Re-record
-                </button>
-              </div>
-              <div className={styles.infoBox}>
-                Clip captured. Continue to Step 2 to choose your publisher page.
-              </div>
-            </>
-          )}
+          <div className={styles.infoBox}>
+            Preview the ad in the phone frame to check it looks right. When ready,
+            hit <strong>Open recorder</strong> to capture your session in a clean
+            full-screen view.
+          </div>
 
           {error && <p className={styles.errorMsg}>{error}</p>}
 
@@ -171,7 +112,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
               onClick={handleOpenLightbox}
               disabled={!hasCreative}
             >
-              {clipReady ? '↺ Re-record' : '● Open recorder'}
+              ● Open recorder
             </button>
           </div>
 
@@ -179,12 +120,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
 
         <div className={styles.centre}>
           <div className={styles.toolbar}>
-            <button
-              className={styles.tbtn}
-              onClick={handleReload}
-              title="Reload ad"
-              aria-label="Reload ad"
-            >
+            <button className={styles.tbtn} onClick={handleReload} title="Reload ad" aria-label="Reload ad">
               <i className="ti ti-refresh" aria-hidden="true" />
             </button>
           </div>
@@ -216,30 +152,20 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
           </IPhoneFrame>
 
           <p className={styles.centreHint}>
-            {clipReady
-              ? 'Clip ready — continue to Step 2'
-              : hasCreative
+            {hasCreative
               ? 'Preview looks good? Hit "Open recorder" in the sidebar'
               : 'Paste a Celtra ID or link to load the ad'}
           </p>
         </div>
 
         <div className={styles.navBar}>
-          <span className={styles.navHint}>Step 1 of 3</span>
-          <button className={styles.btnPrimary} onClick={onNext} disabled={!clipReady}>
-            Next step →
+          <span className={styles.navHint}>Step 1 of 4</span>
+          {/* Next is automatic — fires when recording finishes */}
+          <button className={styles.btnPrimary} disabled>
+            Record to continue →
           </button>
         </div>
       </div>
-
-      {trimOpen && blob && (
-        <TrimModal
-          blob={blob}
-          duration={duration}
-          onConfirm={handleTrimConfirm}
-          onReRecord={handleTrimReRecord}
-        />
-      )}
 
       {lightboxOpen && recordUrl && (
         <RecordLightbox
@@ -248,7 +174,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
           duration={duration}
           error={error}
           iframeRef={lightboxIframeRef}
-          onRecord={handleRecord}
+          onRecord={() => beginRecording(lightboxIframeRef)}
           onStop={stop}
           onClose={handleCloseLightbox}
         />
