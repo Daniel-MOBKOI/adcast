@@ -143,17 +143,32 @@ export async function runCompositor({
   for (let i = 1; i <= nOut; i++) frameScrollY.push(Math.round(targetY + easeInOutCubic(i / nOut) * (maxScroll - targetY)));
   for (let i = 0; i < tailFrames;  i++) frameScrollY.push(maxScroll);
 
+  // Pre-build all unique frames upfront — avoids Sharp async overhead during piping
+  // which caused laggy/uneven frame delivery to ffmpeg
   onProgress(15, 'Building your scene…');
 
+  const frameCache = new Map();
+  const uniqueYs   = [...new Set(frameScrollY)];
+  let   doneUniq   = 0;
+
+  for (const scrollY of uniqueYs) {
+    const buf = await buildFrame({
+      scrollY: Math.min(scrollY, pubCanvasH - H),
+      topImg: topScaled, topH,
+      botImg: botScaled, botH,
+      pubCanvasH,
+    });
+    frameCache.set(scrollY, buf);
+    doneUniq++;
+    onProgress(15 + Math.round((doneUniq / uniqueYs.length) * 50), 'Building your scene…');
+  }
+
+  onProgress(67, 'Encoding…');
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // Launch ffmpeg:
-  //   input 0: ad clip WebM (file — easier for ffmpeg as first input)
-  //   input 1: publisher overlay raw RGBA frames (piped to stdin)
-  // Filter: scale clip → composite publisher on top (transparent gap reveals clip)
   const ffArgs = [
     '-y',
-    // Input 0: ad clip looped to full duration (file input)
+    // Input 0: ad clip — trimmed, looped to full duration
     '-stream_loop', '-1',
     '-t', totalDurSec.toFixed(3),
     '-i', clipPath,
@@ -202,15 +217,10 @@ export async function runCompositor({
   const ffDone = new Promise((res, rej) =>
     ff.on('close', code => code === 0 ? res() : rej(new Error('ffmpeg failed:\n' + ffErr))));
 
-  // Build and pipe each frame on demand — no cache, ~50MB peak RAM
+  // Pipe pre-built frames to ffmpeg — all Sharp work done, smooth delivery
   for (let i = 0; i < frameScrollY.length; i++) {
     if (ff.exitCode !== null) break;
-    const buf = await buildFrame({
-      scrollY: Math.min(frameScrollY[i], pubCanvasH - H),
-      topImg: topScaled, topH,
-      botImg: botScaled, botH,
-      pubCanvasH,
-    });
+    const buf = frameCache.get(frameScrollY[i]);
     await new Promise((res, rej) => {
       const ok = ff.stdin.write(buf, err => {
         if (err && err.code !== 'EPIPE') rej(err);
@@ -219,7 +229,7 @@ export async function runCompositor({
       if (!ok) ff.stdin.once('drain', res);
     });
     if (i % 10 === 0) {
-      onProgress(15 + Math.round((i / totalFrames) * 80), 'Building your scene…');
+      onProgress(67 + Math.round((i / totalFrames) * 28), 'Encoding…');
     }
   }
 
