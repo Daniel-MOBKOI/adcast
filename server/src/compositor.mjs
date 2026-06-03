@@ -241,6 +241,7 @@ export async function runCompositor({
     '-i', clipPath,
     // Input 1: publisher overlay PNG sequence via image2 (frame-perfect timing)
     '-framerate', String(FPS),
+    '-r', String(FPS),
     '-f', 'image2',
     '-i', path.join(seqDir, 'f%05d.png'),
     // Input 2: iPhone UI
@@ -260,6 +261,7 @@ export async function runCompositor({
     ].join(';'),
     '-map', '[out]',
     '-t', totalDurSec.toFixed(3),
+    '-r', String(FPS),
     '-c:v', 'libx264',
     '-pix_fmt', 'yuv420p',
     '-crf', '18',
