@@ -17,11 +17,6 @@ app.use(express.json());
 // Static publisher screenshots
 app.use('/publishers', express.static(path.join(__dirname, '..', 'publishers')));
 
-// Temp assets for Remotion rendering — staged files served to headless Chrome
-const tmpAssetsDir = path.join(__dirname, '..', 'tmp-assets');
-import { mkdirSync } from 'node:fs';
-mkdirSync(tmpAssetsDir, { recursive: true });
-app.use('/tmp-assets', express.static(tmpAssetsDir));
 
 // Uploaded publisher screenshots (runtime uploads)
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
