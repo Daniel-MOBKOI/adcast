@@ -1,35 +1,36 @@
+/* ── Overlay ── */
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.95);
+  background: rgba(0, 0, 0, 0.92);
   z-index: 1001;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 24px;
   box-sizing: border-box;
 }
 
-/* Two-column layout: controls left, video right */
+/* ── Two-column shell: mirrors StepLayout ── */
 .inner {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 32px;
+  justify-content: center;
+  gap: 48px;
   width: 100%;
-  max-width: 900px;
+  max-width: 820px;
   height: 100%;
   max-height: 100%;
 }
 
-/* Left panel — controls */
+/* ── Left: controls (mirrors .sidebar in StepLayout) ── */
 .controls {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  flex: 1;
-  min-width: 220px;
-  max-width: 280px;
+  width: 240px;
+  flex-shrink: 0;
 }
 
 .header {
@@ -39,38 +40,59 @@
 }
 
 .title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: #fff;
+  letter-spacing: -0.01em;
 }
 
 .subtitle {
   font-size: 12px;
-  color: rgba(255,255,255,0.45);
-  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1.55;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+/* Duration display */
+.durationRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.durationLabel {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.durationValue {
+  font-size: 22px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.02em;
+  font-family: monospace;
 }
 
 /* Timeline */
 .timeline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .times {
   display: flex;
   justify-content: space-between;
-  align-items: center;
   font-size: 10px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255, 255, 255, 0.3);
   font-family: monospace;
-}
-
-.dur {
-  font-size: 11px;
-  color: #fff;
-  font-weight: 600;
-  font-family: inherit;
 }
 
 .track {
@@ -87,7 +109,7 @@
   right: 0;
   height: 3px;
   transform: translateY(-50%);
-  background: rgba(255,255,255,0.15);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 99px;
 }
 
@@ -100,11 +122,12 @@
   border-radius: 99px;
 }
 
-.dimLeft, .dimRight {
+.dimLeft,
+.dimRight {
   position: absolute;
   top: 0;
   height: 100%;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.55);
   pointer-events: none;
   z-index: 1;
 }
@@ -129,12 +152,49 @@
   height: 28px;
   background: #fff;
   border-radius: 99px;
-  box-shadow: 0 0 0 3px rgba(0,0,0,0.4);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.1s;
 }
 
-.handle:hover .handleBar { transform: scaleX(1.5); }
+.handle:hover .handleBar {
+  transform: scaleX(1.6);
+}
 
-/* Buttons */
+/* Play row button */
+.playRowBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.12s, color 0.12s;
+}
+.playRowBtn:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+}
+
+.playIcon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* Action buttons */
 .actions {
   display: flex;
   flex-direction: column;
@@ -144,7 +204,7 @@
 .btnPrimary {
   width: 100%;
   background: #fff;
-  color: #111;
+  color: #0a0a0a;
   border: none;
   border-radius: 8px;
   padding: 12px 20px;
@@ -155,13 +215,13 @@
   transition: background 0.15s;
   text-align: center;
 }
-.btnPrimary:hover { background: #f0f0f0; }
+.btnPrimary:hover { background: #ececec; }
 
 .btnSecondary {
   width: 100%;
   background: transparent;
-  color: rgba(255,255,255,0.7);
-  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   padding: 10px 20px;
   font-size: 12px;
@@ -172,56 +232,34 @@
   text-align: center;
 }
 .btnSecondary:hover {
-  background: rgba(255,255,255,0.08);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.85);
 }
 
-/* Right panel — video preview */
-.videoPanel {
+/* ── Right: IPhoneFrame panel ── */
+.framePanel {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
   height: 100%;
   flex-shrink: 0;
 }
 
-/* Video sized to match creative unit ratio (1080:2184) */
-.videoWrap {
-  height: calc(100vh - 80px);
-  width: calc((100vh - 80px) * (1080 / 2184));
-  max-width: 380px;
+/* Video fills the IPhoneFrame screen area */
+.videoScreen {
+  width: 100%;
+  height: 100%;
   background: #000;
-  border-radius: 8px;
   overflow: hidden;
-  position: relative;
-  flex-shrink: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .video {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
   display: block;
+  background: #000;
 }
-
-.playBtn {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(0,0,0,0.5);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(4px);
-  transition: background 0.12s;
-}
-.playBtn:hover { background: rgba(0,0,0,0.7); }

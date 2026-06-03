@@ -4,6 +4,7 @@ import IPhoneFrame from './IPhoneFrame.jsx';
 import styles from './StepLayout.module.css';
 
 function fmtTime(s) {
+  s = Math.floor(s);
   const m = Math.floor(s / 60);
   return m + ':' + String(s % 60).padStart(2, '0');
 }
@@ -74,7 +75,7 @@ export default function Step3Export({ clipBlob, clipDuration, clipTrimStart, cli
           <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Output settings</div>
           <div className={styles.metaList}>
             <div className={styles.metaRow}><span className={styles.metaKey}>Format</span><span className={styles.metaVal}>H.264 MP4</span></div>
-            <div className={styles.metaRow}><span className={styles.metaKey}>Resolution</span><span className={styles.metaVal}>1080 × 1920</span></div>
+            <div className={styles.metaRow}><span className={styles.metaKey}>Resolution</span><span className={styles.metaVal}>1080 × 2342</span></div>
             <div className={styles.metaRow}><span className={styles.metaKey}>Frame rate</span><span className={styles.metaVal}>30 fps</span></div>
             <div className={styles.metaRow}><span className={styles.metaKey}>Ad duration</span><span className={styles.metaVal}>{fmtTime(clipDuration)}</span></div>
             <div className={styles.metaRow}><span className={styles.metaKey}>Publisher</span><span className={styles.metaVal} style={{ maxWidth: 120, textAlign: 'right' }}>{publisher?.label}</span></div>
@@ -130,7 +131,7 @@ export default function Step3Export({ clipBlob, clipDuration, clipTrimStart, cli
             <div className={styles.doneScreen}>
               <div className={styles.doneBadge}>Ready</div>
               <i className="ti ti-player-play" aria-hidden="true" style={{ fontSize: 28, color: 'rgba(255,255,255,0.5)' }} />
-              <div className={styles.doneMeta}>1080 × 1920 · H.264<br />{fmtTime(clipDuration + 8)} · 30fps</div>
+              <div className={styles.doneMeta}>1080 × 2342 · H.264<br />{fmtTime(clipDuration + 8)} · 30fps</div>
             </div>
           )}
           {isError && (
