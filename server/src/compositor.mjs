@@ -1,27 +1,35 @@
 /**
- * Compositor v9 — Remotion-powered.
+ * Compositor v10 — Remotion with Express static asset serving.
  *
- * Replaces the Sharp+ffmpeg frame-pipe approach with Remotion's renderMedia().
- * Remotion renders each frame at exactly the right timestamp via headless Chrome,
- * producing a perfectly smooth H.264 MP4 with no frame timing issues.
+ * Instead of spinning up per-file HTTP servers (which Remotion's sandboxed
+ * Chrome can't always reach), we copy assets to a temp directory served
+ * by the existing Express static middleware, then pass those URLs to Remotion.
  */
 
 import fs   from 'node:fs';
 import path from 'node:path';
-import http from 'node:http';
+import os   from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { bundle }                        from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REMOTION_ENTRY = path.resolve(__dirname, '..', '..', 'remotion', 'src', 'index.ts');
 
-// Bundle cache — only bundle once per server process
+// The Express server port — Remotion's Chrome can reach this
+const SERVER_PORT = process.env.PORT || 3001;
+const BASE_URL    = `http://127.0.0.1:${SERVER_PORT}`;
+
+// Temp assets served via /tmp-assets/ route on Express
+const TMP_ASSETS_DIR = path.join(__dirname, '..', '..', 'tmp-assets');
+fs.mkdirSync(TMP_ASSETS_DIR, { recursive: true });
+
+// Bundle cache
 let bundleCache = null;
 
 async function getBundle() {
   if (bundleCache) return bundleCache;
-  console.log('[Compositor] Bundling Remotion composition…');
+  console.log('[Compositor] Bundling Remotion…');
+  const REMOTION_ENTRY = path.resolve(__dirname, '..', '..', 'remotion', 'src', 'index.ts');
   bundleCache = await bundle({
     entryPoint: REMOTION_ENTRY,
     webpackOverride: (config) => config,
@@ -30,28 +38,13 @@ async function getBundle() {
   return bundleCache;
 }
 
-function serveFile(filePath, contentType) {
-  return new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
-      try {
-        const data = fs.readFileSync(filePath);
-        res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
-        res.end(data);
-      } catch { res.writeHead(404); res.end(); }
-    });
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address();
-      resolve({ server, url: `http://127.0.0.1:${port}/file`, close: () => server.close() });
-    });
-  });
-}
-
-function mimeFor(p) {
-  const e = path.extname(p).toLowerCase();
-  if (e === '.webm') return 'video/webm';
-  if (e === '.mp4')  return 'video/mp4';
-  if (e === '.png')  return 'image/png';
-  return 'image/jpeg';
+/**
+ * Copy a file to tmp-assets dir and return its public URL.
+ */
+function stageAsset(srcPath, name) {
+  const dest = path.join(TMP_ASSETS_DIR, name);
+  fs.copyFileSync(srcPath, dest);
+  return `${BASE_URL}/tmp-assets/${name}`;
 }
 
 export async function runCompositor({
@@ -68,28 +61,26 @@ export async function runCompositor({
 }) {
   onProgress(5, 'Preparing scene…');
 
-  const servers = await Promise.all([
-    serveFile(clipPath,            mimeFor(clipPath)),
-    serveFile(publisherTopPath,    'image/jpeg'),
-    serveFile(publisherBottomPath, 'image/jpeg'),
-    serveFile(adBarTopPath,        mimeFor(adBarTopPath)),
-    serveFile(adBarBottomPath,     mimeFor(adBarBottomPath)),
-    serveFile(iphoneUiPath,        'image/png'),
-  ]);
-
-  const [clipSrv, topSrv, botSrv, adBarTopSrv, adBarBotSrv, iphoneSrv] = servers;
+  // Stage all assets with unique names to avoid collisions
+  const id = Date.now();
+  const clipUrl        = stageAsset(clipPath,            `clip-${id}.webm`);
+  const topUrl         = stageAsset(publisherTopPath,    `pub-top-${id}.jpg`);
+  const botUrl         = stageAsset(publisherBottomPath, `pub-bot-${id}.jpg`);
+  const adBarTopUrl    = stageAsset(adBarTopPath,        `adbar-top-${id}.jpg`);
+  const adBarBotUrl    = stageAsset(adBarBottomPath,     `adbar-bot-${id}.jpg`);
+  const iphoneUrl      = stageAsset(iphoneUiPath,        `iphone-${id}.png`);
 
   try {
     onProgress(10, 'Building scene…');
     const serveUrl = await getBundle();
 
     const inputProps = {
-      clipUrl:            clipSrv.url,
-      publisherTopUrl:    topSrv.url,
-      publisherBottomUrl: botSrv.url,
-      adBarTopUrl:        adBarTopSrv.url,
-      adBarBottomUrl:     adBarBotSrv.url,
-      iphoneUiUrl:        iphoneSrv.url,
+      clipUrl,
+      publisherTopUrl:    topUrl,
+      publisherBottomUrl: botUrl,
+      adBarTopUrl,
+      adBarBottomUrl:     adBarBotUrl,
+      iphoneUiUrl:        iphoneUrl,
       trimStart:          trimStart ?? 0,
       trimEnd:            trimEnd   ?? 10,
     };
@@ -119,7 +110,13 @@ export async function runCompositor({
     });
 
     onProgress(100, 'Done');
+
   } finally {
-    servers.forEach(s => s.close());
+    // Clean up staged assets
+    try {
+      [`clip-${id}.webm`, `pub-top-${id}.jpg`, `pub-bot-${id}.jpg`,
+       `adbar-top-${id}.jpg`, `adbar-bot-${id}.jpg`, `iphone-${id}.png`]
+        .forEach(f => fs.rmSync(path.join(TMP_ASSETS_DIR, f), { force: true }));
+    } catch {}
   }
 }
