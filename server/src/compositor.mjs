@@ -15,11 +15,11 @@
  *   If clip > 27s, plays continuously, scroll-out covers it
  *   Hard cut at 30s
  *
- * SCROLL POSITIONS (derived from pixel analysis of step mockups):
- *   Start   : scrollY = 0
- *   Step 2  : scrollY = topH - H          (ad bar just at bottom of screen)
- *   Target  : scrollY = topH + AD_BAR_TOP_H + CREATIVE_H - H + AD_BAR_BOT_H (both bars fully visible)
- *   End     : scrollY = topH + (CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP)
+ * SCROLL POSITIONS:
+ *   Start   : scrollY = -CREATIVE_TOP (-158)    article top appears at viewport y=158, below UI
+ *   Step 2  : scrollY = topH - H                ADVERTISEMENT bar just enters bottom of viewport
+ *   Target  : scrollY = topH + AD_BAR_TOP_H + CREATIVE_H + AD_BAR_BOT_H - H  (both bars fully visible)
+ *   End     : scrollY = topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP
  *
  * PUBLISHER CANVAS LAYOUT:
  *   [topH]        publisher top image
@@ -158,29 +158,33 @@ export async function runCompositor({
   onProgress(10, 'Building your scene…');
 
   // ── Scroll positions ──────────────────────────────────────────────────────
-  // scrollY values derived from step mockup pixel analysis:
-  //   Start  : 0
-  //   Step2  : topH - H  (ad bar just reaches bottom of viewport)
-  //   Target : topH + AD_BAR_TOP_H + CREATIVE_H - H + AD_BAR_BOT_H  (ADVERTISEMENT at y=80, SCROLL TO CONTINUE flush at y=2305–2342)
-  //   End    : topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP
-  //            (bottom publisher fully covers creative area)
-  const maxScroll  = Math.max(0, pubCanvasH - H);
-  const scrollStep2 = Math.max(0, Math.min(topH - H, maxScroll));
-  // scrollTarget: both bars fully on screen — ADVERTISEMENT at top, SCROLL TO CONTINUE flush at bottom
-  const scrollTarget = Math.max(0, Math.min(topH + AD_BAR_TOP_H + CREATIVE_H - H + AD_BAR_BOT_H, maxScroll));
-  const scrollEnd   = Math.min(topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP, maxScroll);
+  // scrollY = publisher canvas Y that maps to viewport y=0.
+  // Negative scrollY shifts the publisher DOWN — article top appears below the UI overlay.
+  //
+  //   Start   : -CREATIVE_TOP (-158)   article top at viewport y=158, just below UI
+  //   Step2   : topH - H               ADVERTISEMENT bar just enters bottom of viewport
+  //   Target  : topH - CREATIVE_TOP + AD_BAR_TOP_H
+  //             ADVERTISEMENT spans viewport y=117-158 (overlaps UI zone, still readable)
+  //             SCROLL TO CONTINUE flush at viewport bottom y=2305-2342
+  //   End     : topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP
+  //             bottom publisher image covers ad
+  const maxScroll    = pubCanvasH - H;
+  const scrollStart  = -CREATIVE_TOP;                                              // -158
+  const scrollStep2  = topH - H;                                                   // 1297
+  const scrollTarget = topH + AD_BAR_TOP_H + CREATIVE_H + AD_BAR_BOT_H - H;      // both bars fully in viewport
+  const scrollEnd    = Math.min(topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP, maxScroll);
 
   // ── Per-frame scroll Y ────────────────────────────────────────────────────
   const frameScrollY = [];
 
   for (let f = 0; f < TOTAL_FRAMES; f++) {
     const t = f / FPS;
-    let sy = 0;
+    let sy = scrollStart;
 
     if (t <= T_SCROLL1_END) {
-      // First scroll: 0 → scrollStep2, ease out
+      // First scroll: scrollStart → scrollStep2, ease out
       const p = easeOut(t / T_SCROLL1_END);
-      sy = Math.round(p * scrollStep2);
+      sy = Math.round(scrollStart + p * (scrollStep2 - scrollStart));
     } else if (t <= T_PAUSE_END) {
       // Hesitation: nearly still, tiny drift
       const p = (t - T_SCROLL1_END) / (T_PAUSE_END - T_SCROLL1_END);
@@ -198,7 +202,7 @@ export async function runCompositor({
       sy = Math.round(scrollTarget + p * (scrollEnd - scrollTarget));
     }
 
-    frameScrollY.push(Math.max(0, Math.min(sy, pubCanvasH - H)));
+    frameScrollY.push(Math.min(Math.max(sy, scrollStart), maxScroll));
   }
 
   // ── Build publisher overlay frames ────────────────────────────────────────
