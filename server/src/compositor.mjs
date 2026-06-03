@@ -51,7 +51,7 @@ const AD_BAR_BOT_H = 37;
 const CREATIVE_TOP = 158;    // = IPHONE_UI_H — top of content area (below status bar)
 const CREATIVE_H   = 2184;   // total content area height (UI to bottom)
 const CLIP_TOP     = CREATIVE_TOP;                  // 158 — clip starts right below iPhone UI (bars overlap into clip)
-const CLIP_H       = CREATIVE_H;                    // 2184 — clip fills full content area, bars overlay on top
+const CLIP_H       = H - CLIP_TOP;                  // 2183 — fills canvas exactly (CREATIVE_H=2184 overflows by 1px)
 
 // ── Timing ────────────────────────────────────────────────────────────────────
 const FPS           = 30;
@@ -86,7 +86,7 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH,
                              adBarTop, adBarBot, pubCanvasH }) {
   const barTopStart = topH;
   const gapStart    = topH + AD_BAR_TOP_H;
-  const gapEnd      = gapStart + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H);  // 2105 — pure creative gap (bars sit outside)
+  const gapEnd      = gapStart + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H);  // 2105 — publisher gap (clip=2183, bars overlap 41+37px)
   const barBotStart = gapEnd;
   const botImgStart = barBotStart + AD_BAR_BOT_H;
 
@@ -156,7 +156,7 @@ export async function runCompositor({
   const adBarTopSc = await sharp(adBarTopPath).resize(W,AD_BAR_TOP_H,{fit:'fill'}).toBuffer();
   const adBarBotSc = await sharp(adBarBottomPath).resize(W,AD_BAR_BOT_H,{fit:'fill'}).toBuffer();
 
-  const pubCanvasH = topH + AD_BAR_TOP_H + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H) + AD_BAR_BOT_H + botH;  // = topH + CLIP_H + botH
+  const pubCanvasH = topH + AD_BAR_TOP_H + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H) + AD_BAR_BOT_H + botH;
 
   onProgress(10, 'Building your scene…');
 
