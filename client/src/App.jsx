@@ -9,14 +9,12 @@ import Login from './components/Login.jsx';
 import styles from './App.module.css';
 
 export default function App() {
-  // Require a stored token. (Login validates the team password against the
-  // server and stores it as the token.) Without this, the app would skip login,
-  // send no token, and every /api call would 401 — which the fetch wrapper turns
-  // into a page reload, bouncing the user back to step 1.
   const [authed, setAuthed] = useState(!!sessionStorage.getItem('adcast_token'));
   const [step, setStep] = useState(1);
   const [clipBlob, setClipBlob] = useState(null);
   const [clipDuration, setClipDuration] = useState(0);
+  const [clipTrimStart, setClipTrimStart] = useState(0);
+  const [clipTrimEnd, setClipTrimEnd] = useState(null);
   const [publisher, setPublisher] = useState(null);
   const [jobId, setJobId] = useState(null);
 
@@ -51,7 +49,12 @@ export default function App() {
         {step === 1 && (
           <Step1Record
             clipBlob={clipBlob}
-            onClip={(blob, dur) => { setClipBlob(blob); setClipDuration(dur); }}
+            onClip={(blob, dur, trimStart, trimEnd) => {
+              setClipBlob(blob);
+              setClipDuration(dur);
+              setClipTrimStart(trimStart ?? 0);
+              setClipTrimEnd(trimEnd ?? dur);
+            }}
             onNext={() => setStep(2)}
           />
         )}
@@ -67,11 +70,21 @@ export default function App() {
           <Step3Export
             clipBlob={clipBlob}
             clipDuration={clipDuration}
+            clipTrimStart={clipTrimStart}
+            clipTrimEnd={clipTrimEnd}
             publisher={publisher}
             jobId={jobId}
             onJobId={setJobId}
             onBack={() => setStep(2)}
-            onNew={() => { setClipBlob(null); setClipDuration(0); setPublisher(null); setJobId(null); setStep(1); }}
+            onNew={() => {
+              setClipBlob(null);
+              setClipDuration(0);
+              setClipTrimStart(0);
+              setClipTrimEnd(null);
+              setPublisher(null);
+              setJobId(null);
+              setStep(1);
+            }}
           />
         )}
       </div>

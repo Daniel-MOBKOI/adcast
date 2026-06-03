@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import TrimModal from './TrimModal.jsx';
 import { useRecorder } from '../hooks/useRecorder.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
 import RecordLightbox from './RecordLightbox.jsx';
@@ -22,25 +23,24 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
     id = m ? m[1] : '';
   }
   if (!/^[A-Za-z0-9]+$/.test(id)) return '';
+  const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
+  f.searchParams.set('rp.useFullWidth', '1');
+  f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
+  f.searchParams.set('rp._useSnapping', '1');
+  f.searchParams.set('rp._snappingFraction', '0.5');
   if (standalone) {
-    // Preview mode — standard /frame endpoint with standalone chrome
-    const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
-    f.searchParams.set('rp.useFullWidth', '1');
-    f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
     f.searchParams.set('rp.standalonePreview', '1');
-    f.searchParams.set('rp._useSnapping', '1');
-    f.searchParams.set('rp._snappingFraction', '0.5');
-    return f.toString();
   } else {
-    // Recording mode — our server serves a wrapper page that loads the
-    // Celtra web.js tag directly. No article skeleton, no bars, same-origin.
-    return '/celtra-embed/' + id;
+    f.searchParams.set('rp.removeAdvertisementBars', '1');
+    f.searchParams.set('rp.standalonePreview', '1');
   }
+  return f.toString();
 }
 
 export default function Step1Record({ clipBlob, onClip, onNext }) {
   const [celtraUrl, setCeltraUrl] = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [trimOpen, setTrimOpen] = useState(false);
   const { state, duration, error, blob, start, stop, reset } = useRecorder();
 
   // Ref to the iframe inside the lightbox — passed to cropTo()
@@ -73,10 +73,20 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
     start(lightboxIframeRef);
   }
 
-  // When recording finishes, lift the blob up and close the lightbox
-  if (state === 'done' && blob && blob !== clipBlob) {
-    onClip(blob, duration);
-    // lightbox auto-closes via useEffect in RecordLightbox
+  // When recording finishes, open trim modal (lightbox auto-closes via useEffect)
+  if (state === 'done' && blob && !trimOpen && blob !== clipBlob) {
+    setTrimOpen(true);
+  }
+
+  function handleTrimConfirm(trimStart, trimEnd) {
+    setTrimOpen(false);
+    onClip(blob, trimEnd - trimStart, trimStart, trimEnd);
+  }
+
+  function handleTrimReRecord() {
+    setTrimOpen(false);
+    reset();
+    setLightboxOpen(true);
   }
 
   const clipReady = !!clipBlob || (state === 'done' && blob);
@@ -211,6 +221,15 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
           </button>
         </div>
       </div>
+
+      {trimOpen && blob && (
+        <TrimModal
+          blob={blob}
+          duration={duration}
+          onConfirm={handleTrimConfirm}
+          onReRecord={handleTrimReRecord}
+        />
+      )}
 
       {lightboxOpen && recordUrl && (
         <RecordLightbox

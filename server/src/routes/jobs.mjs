@@ -26,7 +26,7 @@ const router = express.Router();
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
-  const { publisherId, publisherLabel } = req.body;
+  const { publisherId, publisherLabel, trimStart, trimEnd } = req.body;
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
   // Resolve publisher to top + bottom image paths server-side
@@ -45,6 +45,8 @@ router.post('/', upload.single('clip'), async (req, res) => {
     publisherTopPath:    publisherPaths.top,
     publisherBottomPath: publisherPaths.bottom,
     outPath,
+    trimStart: trimStart ? parseFloat(trimStart) : 0,
+    trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
     onProgress: (pct, msg) => {
       const job = jobs.get(jobId);
       if (job) { job.progress = pct; job.message = msg; }

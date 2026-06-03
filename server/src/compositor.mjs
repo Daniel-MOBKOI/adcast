@@ -98,6 +98,8 @@ export async function runCompositor({
   publisherTopPath,
   publisherBottomPath,
   outPath,
+  trimStart = 0,
+  trimEnd   = null,
   onProgress,
 }) {
   onProgress(5, 'Building your scene…');
