@@ -18,7 +18,7 @@
  * SCROLL POSITIONS (derived from pixel analysis of step mockups):
  *   Start   : scrollY = 0
  *   Step 2  : scrollY = topH - H          (ad bar just at bottom of screen)
- *   Target  : scrollY = topH - CREATIVE_TOP (ADVERTISEMENT bar at y=158)
+ *   Target  : scrollY = topH + AD_BAR_TOP_H + CREATIVE_H - H + AD_BAR_BOT_H (both bars fully visible)
  *   End     : scrollY = topH + (CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP)
  *
  * PUBLISHER CANVAS LAYOUT:
@@ -161,12 +161,13 @@ export async function runCompositor({
   // scrollY values derived from step mockup pixel analysis:
   //   Start  : 0
   //   Step2  : topH - H  (ad bar just reaches bottom of viewport)
-  //   Target : topH - CREATIVE_TOP  (ADVERTISEMENT bar flush at creative area top)
+  //   Target : topH + AD_BAR_TOP_H + CREATIVE_H - H + AD_BAR_BOT_H  (ADVERTISEMENT at y=80, SCROLL TO CONTINUE flush at y=2305–2342)
   //   End    : topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP
   //            (bottom publisher fully covers creative area)
   const maxScroll  = Math.max(0, pubCanvasH - H);
   const scrollStep2 = Math.max(0, Math.min(topH - H, maxScroll));
-  const scrollTarget = Math.max(0, Math.min(topH - CREATIVE_TOP, maxScroll));
+  // scrollTarget: both bars fully on screen — ADVERTISEMENT at top, SCROLL TO CONTINUE flush at bottom
+  const scrollTarget = Math.max(0, Math.min(topH + AD_BAR_TOP_H + CREATIVE_H - H + AD_BAR_BOT_H, maxScroll));
   const scrollEnd   = Math.min(topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP, maxScroll);
 
   // ── Per-frame scroll Y ────────────────────────────────────────────────────
