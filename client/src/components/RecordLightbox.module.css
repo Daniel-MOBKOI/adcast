@@ -93,12 +93,8 @@
 /* Ad bars in Celtra are ~2.3% top and ~2.3% bottom of the iframe */
 /* We offset the iframe up and increase its height to push bars out of view */
 .frameWrap {
-  /* Container sized to show ONLY the ad unit — no article skeleton above.
-     The Celtra standalone preview has ~38% article content above the ad.
-     We make the iframe 162% taller than the container and shift it up by 62%
-     so the article content is hidden above the overflow:hidden boundary. */
   height: calc(100vh - 160px);
-  width: calc((100vh - 160px) * (1179 / 2556));
+  width: calc((100vh - 160px) * (1179 / 2384));
   flex-shrink: 0;
   border-radius: 4px;
   overflow: hidden;
@@ -110,12 +106,10 @@
 
 .frame {
   position: absolute;
-  /* Iframe is 162% of container height — article sits in the top 38% */
-  height: 162%;
-  width: 100%;
-  /* Shift up by 62% of container height to push article out of view */
-  top: -62%;
+  top: 0;
   left: 0;
+  width: 100%;
+  height: 100%;
   border: 0;
   display: block;
   cursor: none;

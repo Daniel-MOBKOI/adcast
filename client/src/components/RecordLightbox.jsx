@@ -127,27 +127,11 @@ export default function RecordLightbox({
             ref={iframeRef}
             src={iframeUrl}
             className={styles.frame}
-            allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope; pointer-lock"
+            allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
             allowFullScreen
             title="Celtra ad — record mode"
-            scrolling="yes"
+            scrolling="no"
             frameBorder="0"
-            style={{ touchAction: 'pan-x pan-y', overscrollBehavior: 'contain' }}
-            onLoad={e => {
-              // Auto-scroll iframe to bottom so ad is visible immediately
-              // The standalone preview puts article content above the ad
-              try {
-                const win = e.target.contentWindow;
-                if (win) {
-                  // Small delay to let Celtra finish rendering
-                  setTimeout(() => {
-                    win.scrollTo({ top: win.document.body.scrollHeight, behavior: 'instant' });
-                  }, 800);
-                }
-              } catch (_) {
-                // Cross-origin — can't scroll, user will see ad in position
-              }
-            }}
           />
         </div>
 

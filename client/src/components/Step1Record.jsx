@@ -22,22 +22,20 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
     id = m ? m[1] : '';
   }
   if (!/^[A-Za-z0-9]+$/.test(id)) return '';
-  const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
-  f.searchParams.set('rp.useFullWidth', '1');
-  f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
   if (standalone) {
-    // Preview mode — show full standalone chrome with scroll behaviour
+    // Preview mode — standard /frame endpoint with standalone chrome
+    const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
+    f.searchParams.set('rp.useFullWidth', '1');
+    f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
     f.searchParams.set('rp.standalonePreview', '1');
     f.searchParams.set('rp._useSnapping', '1');
     f.searchParams.set('rp._snappingFraction', '0.5');
+    return f.toString();
   } else {
-    // Recording mode — show ad immediately, no scroll wrapper, no bars
-    f.searchParams.set('rp.removeAdvertisementBars', '1');
-    f.searchParams.set('rp.standalonePreview', '0');
-    f.searchParams.set('rp._useSnapping', '0');
-    f.searchParams.set('rp.expandedOnLoad', '1');
+    // Recording mode — our server serves a wrapper page that loads the
+    // Celtra web.js tag directly. No article skeleton, no bars, same-origin.
+    return '/celtra-embed/' + id;
   }
-  return f.toString();
 }
 
 export default function Step1Record({ clipBlob, onClip, onNext }) {
