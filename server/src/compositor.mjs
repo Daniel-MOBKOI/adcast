@@ -86,7 +86,7 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH,
                              adBarTop, adBarBot, pubCanvasH }) {
   const barTopStart = topH;
   const gapStart    = topH + AD_BAR_TOP_H;
-  const gapEnd      = gapStart + CREATIVE_H;
+  const gapEnd      = gapStart + CLIP_H;
   const barBotStart = gapEnd;
   const botImgStart = barBotStart + AD_BAR_BOT_H;
 
@@ -155,7 +155,7 @@ export async function runCompositor({
   const adBarTopSc = await sharp(adBarTopPath).resize(W,AD_BAR_TOP_H,{fit:'fill'}).toBuffer();
   const adBarBotSc = await sharp(adBarBottomPath).resize(W,AD_BAR_BOT_H,{fit:'fill'}).toBuffer();
 
-  const pubCanvasH = topH + AD_BAR_TOP_H + CREATIVE_H + AD_BAR_BOT_H + botH;
+  const pubCanvasH = topH + AD_BAR_TOP_H + CLIP_H + AD_BAR_BOT_H + botH;
 
   onProgress(10, 'Building your scene…');
 
