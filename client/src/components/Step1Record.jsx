@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import TrimModal from './TrimModal.jsx';
 import { useRecorder } from '../hooks/useRecorder.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
@@ -41,7 +41,16 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
   const [celtraUrl, setCeltraUrl] = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [trimOpen, setTrimOpen] = useState(false);
-  const { state, duration, error, blob, start, stop, reset } = useRecorder();
+  const { state, duration, error, blob, requestStream, beginRecording, stop, reset } = useRecorder();
+
+  // Open lightbox once stream permission is granted (no popup disruption)
+  const prevStateRef = useRef('idle');
+  useEffect(() => {
+    if (prevStateRef.current !== 'streamReady' && state === 'streamReady') {
+      setLightboxOpen(true);
+    }
+    prevStateRef.current = state;
+  }, [state]);
 
   // Ref to the iframe inside the lightbox — passed to cropTo()
   const lightboxIframeRef = useRef(null);
@@ -59,9 +68,10 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
     setTimeout(() => setCeltraUrl(u), 50);
   }
 
-  function handleOpenLightbox() {
+  async function handleOpenLightbox() {
     reset(); // clear any previous recording
-    setLightboxOpen(true);
+    await requestStream(); // fires permission popup BEFORE lightbox opens
+    // lightbox opens via useEffect watching state (see below)
   }
 
   function handleCloseLightbox() {
@@ -70,7 +80,7 @@ export default function Step1Record({ clipBlob, onClip, onNext }) {
   }
 
   function handleRecord() {
-    start(lightboxIframeRef);
+    beginRecording(lightboxIframeRef);
   }
 
   // When recording finishes, open trim modal (lightbox auto-closes via useEffect)

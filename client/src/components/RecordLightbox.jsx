@@ -77,7 +77,8 @@ export default function RecordLightbox({
   onClose,
 }) {
   const isRecording  = recorderState === 'recording';
-  const isRequesting = recorderState === 'requesting';
+  const isRequesting = recorderState === 'requesting'; // brief, before lightbox opens
+  const isStreamReady = recorderState === 'streamReady';
   const isDone       = recorderState === 'done';
 
   useEffect(() => {
@@ -107,6 +108,7 @@ export default function RecordLightbox({
               <span className={styles.headerLabel}>
                 {isRequesting
                   ? 'Waiting for permission…'
+                  : isStreamReady ? 'Ad loaded — interact freely, then hit record'
                   : 'Interact with the ad, then hit record'}
               </span>
             )}

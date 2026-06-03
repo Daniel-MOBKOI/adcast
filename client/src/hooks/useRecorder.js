@@ -1,16 +1,20 @@
 import { useState, useRef, useCallback } from 'react';
 
 /**
- * useRecorder — wraps getDisplayMedia with optional cropTo() element capture.
+ * useRecorder — two-phase recording:
  *
- * When an `elementRef` is passed to `start()`, the stream is cropped to that
- * element using the Element Capture API (Chrome 122+). This records only the
- * iframe content at its actual rendered size — no AdCast UI chrome.
+ *   Phase 1 — requestStream()
+ *     Fires getDisplayMedia immediately. Browser permission popup appears.
+ *     Call this BEFORE opening the lightbox so the popup doesn't disrupt the ad.
+ *     State: idle → requesting → streamReady
  *
- * Falls back to full tab capture if cropTo() is not supported.
+ *   Phase 2 — beginRecording(elementRef)
+ *     Stream is already granted. Crops to element, starts MediaRecorder instantly.
+ *     No popup — no page disruption.
+ *     State: streamReady → recording → done
  */
 export function useRecorder() {
-  const [state, setState] = useState('idle'); // idle | requesting | recording | done | error
+  const [state, setState] = useState('idle'); // idle | requesting | streamReady | recording | done | error
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState(null);
   const [blob, setBlob] = useState(null);
@@ -21,7 +25,8 @@ export function useRecorder() {
   const timerRef = useRef(null);
   const secondsRef = useRef(0);
 
-  const start = useCallback(async (elementRef) => {
+  // ── Phase 1: request stream (fires permission popup) ──────────────────────
+  const requestStream = useCallback(async () => {
     setError(null);
     setBlob(null);
     setState('requesting');
@@ -30,64 +35,77 @@ export function useRecorder() {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { frameRate: 30, displaySurface: 'browser' },
         audio: false,
-        preferCurrentTab: true
+        preferCurrentTab: true,
       });
       streamRef.current = stream;
 
-      // Attempt to crop to the target element (Chrome 122+ Element Capture API)
-      if (elementRef?.current && stream.getVideoTracks().length > 0) {
-        const track = stream.getVideoTracks()[0];
-        if (typeof track.cropTo === 'function') {
-          try {
-            const cropTarget = await CropTarget.fromElement(elementRef.current);
-            await track.cropTo(cropTarget);
-          } catch (cropErr) {
-            console.warn('cropTo() failed, falling back to full tab capture:', cropErr);
-          }
-        }
-      }
-
-      // Pick best supported codec — prefer vp9 for quality
-      const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
-        .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
-
-      const mr = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: 20_000_000 // 20Mbps for crisp creative capture
-      });
-      mediaRecorderRef.current = mr;
-      chunksRef.current = [];
-
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = () => {
-        const recorded = new Blob(chunksRef.current, { type: mimeType });
-        setBlob(recorded);
-        setState('done');
-        clearInterval(timerRef.current);
-        stream.getTracks().forEach(t => t.stop());
-      };
-
-      // Stop if user clicks "Stop sharing" in browser UI
+      // If user clicks "Stop sharing" in browser UI before recording starts
       stream.getVideoTracks()[0].onended = () => {
-        if (mr.state === 'recording') mr.stop();
+        setState('idle');
+        streamRef.current = null;
       };
 
-      secondsRef.current = 0;
-      setDuration(0);
-      setState('recording');
-      mr.start(250); // smaller chunks for smoother quality
-
-      timerRef.current = setInterval(() => {
-        secondsRef.current += 1;
-        setDuration(secondsRef.current);
-      }, 1000);
-
+      setState('streamReady');
     } catch (err) {
       setState('error');
       setError(err.name === 'NotAllowedError'
         ? 'Permission denied — please allow tab capture when prompted.'
         : err.message);
     }
+  }, []);
+
+  // ── Phase 2: begin recording (stream already granted) ────────────────────
+  const beginRecording = useCallback(async (elementRef) => {
+    const stream = streamRef.current;
+    if (!stream) { setError('No stream — please try again.'); setState('error'); return; }
+
+    // Attempt cropTo() on the target element (Chrome 122+ Element Capture API)
+    if (elementRef?.current && stream.getVideoTracks().length > 0) {
+      const track = stream.getVideoTracks()[0];
+      if (typeof track.cropTo === 'function') {
+        try {
+          const cropTarget = await CropTarget.fromElement(elementRef.current);
+          await track.cropTo(cropTarget);
+        } catch (cropErr) {
+          console.warn('cropTo() failed, falling back to full tab capture:', cropErr);
+        }
+      }
+    }
+
+    const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+      .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
+
+    const mr = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 20_000_000,
+    });
+    mediaRecorderRef.current = mr;
+    chunksRef.current = [];
+
+    mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+    mr.onstop = () => {
+      const recorded = new Blob(chunksRef.current, { type: mimeType });
+      setBlob(recorded);
+      setState('done');
+      clearInterval(timerRef.current);
+      stream.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    };
+
+    // If user clicks "Stop sharing" mid-recording
+    stream.getVideoTracks()[0].onended = () => {
+      if (mr.state === 'recording') mr.stop();
+    };
+
+    secondsRef.current = 0;
+    setDuration(0);
+    setState('recording');
+    mr.start(250);
+
+    timerRef.current = setInterval(() => {
+      secondsRef.current += 1;
+      setDuration(secondsRef.current);
+    }, 1000);
   }, []);
 
   const stop = useCallback(() => {
@@ -99,11 +117,13 @@ export function useRecorder() {
 
   const reset = useCallback(() => {
     stop();
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
     setBlob(null);
     setDuration(0);
     setError(null);
     setState('idle');
   }, [stop]);
 
-  return { state, duration, error, blob, start, stop, reset };
+  return { state, duration, error, blob, requestStream, beginRecording, stop, reset };
 }
