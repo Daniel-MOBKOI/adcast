@@ -267,7 +267,7 @@ export async function runCompositor({
   await run(FFMPEG, [
     '-y', '-loop', '1', '-framerate', String(FPS),
     '-i', firstFrame,
-    '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=increase,crop=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
+    '-vf', `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`,
     '-t', CLIP_PLAY_START.toFixed(3),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     freezeStart,
@@ -278,7 +278,7 @@ export async function runCompositor({
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
     '-i', clipPath,
-    '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=increase,crop=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
+    '-vf', `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`,
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     clipScaled,
   ]);

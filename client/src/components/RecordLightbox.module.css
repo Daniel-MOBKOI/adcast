@@ -94,7 +94,7 @@
 /* We offset the iframe up and increase its height to push bars out of view */
 .frameWrap {
   height: calc(100vh - 160px);
-  width: calc((100vh - 160px) * (1179 / 2384));
+  width: calc((100vh - 160px) * (1080 / 2342));
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
