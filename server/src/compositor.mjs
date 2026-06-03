@@ -308,21 +308,57 @@ export async function runCompositor({
     finalTrimT    = CLIP_HOLD_SEC.toFixed(3);
   }
 
-  // ── ffmpeg final compose ───────────────────────────────────────────────────
-  // Input 0: clip — delayed to start at CLIP_START_SEC using itsoffset
-  // Input 1: publisher overlay PNG sequence
-  // Input 2: iPhone UI
-  //
-  // We pad the clip with black at the start (0 → CLIP_START_SEC = 3s)
-  // so it aligns with the hold phase of the publisher animation.
+  // ── Pre-build full clip track (black leader + content) ──────────────────
+  // Build a single video: 3s black + 24s clip = 27s total
+  // This avoids complex filter_complex concat with mixed sources
+  const leaderVideo  = path.join(tmpDir, 'leader.mp4');
+  const fullTrack    = path.join(tmpDir, 'full-track.mp4');
+  const trackConcat  = path.join(tmpDir, 'track-concat.txt');
 
+  // Generate 3s black video at correct dimensions
+  await run(FFMPEG, [
+    '-y',
+    '-f', 'lavfi',
+    '-i', `color=black:size=${W}x${H}:rate=${FPS}`,
+    '-t', CLIP_START_SEC.toFixed(3),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-r', String(FPS),
+    leaderVideo,
+  ]);
+
+  // Scale clip to full canvas dimensions
+  const clipFullCanvas = path.join(tmpDir, 'clip-canvas.mp4');
+  await run(FFMPEG, [
+    '-y',
+    '-ss', finalTrimSS, '-t', finalTrimT,
+    '-i', finalClipPath,
+    '-vf', `scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,` +
+           `crop=${W}:${CREATIVE_H},` +
+           `pad=${W}:${H}:0:${CREATIVE_TOP}:color=black`,
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-r', String(FPS),
+    clipFullCanvas,
+  ]);
+
+  // Concat leader + clip
+  fs.writeFileSync(trackConcat,
+    `file '${leaderVideo}'
+file '${clipFullCanvas}'`);
+
+  await run(FFMPEG, [
+    '-y', '-f', 'concat', '-safe', '0',
+    '-i', trackConcat,
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-r', String(FPS),
+    fullTrack,
+  ]);
+
+  // ── ffmpeg final compose ──────────────────────────────────────────────────
   const ffArgs = [
     '-y',
-    // Input 0: ad clip (starts at CLIP_START_SEC in the output)
-    '-ss', finalTrimSS,
-    '-t',  finalTrimT,
-    '-i', finalClipPath,
-    // Input 1: publisher overlay PNG sequence
+    // Input 0: full clip track (black leader + content, 27s)
+    '-i', fullTrack,
+    // Input 1: publisher overlay PNG sequence (30s)
     '-framerate', String(FPS),
     '-r', String(FPS),
     '-f', 'image2',
@@ -330,18 +366,10 @@ export async function runCompositor({
     // Input 2: iPhone UI
     '-loop', '1', '-i', iphoneScaled,
     '-filter_complex', [
-      // Black leader for scroll-in phase (0 → CLIP_START_SEC)
-      `color=black:size=${W}x${H}:rate=${FPS}:duration=${CLIP_START_SEC}[leader]`,
-      // Clip: scale to fill creative area, pad to full canvas
-      `[0:v]scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,` +
-        `crop=${W}:${CREATIVE_H},` +
-        `pad=${W}:${H}:0:${CREATIVE_TOP}:color=black[clipscaled]`,
-      // Concatenate leader + clip so clip starts at CLIP_START_SEC
-      `[leader][clipscaled]concat=n=2:v=1:a=0[clip]`,
       // Publisher overlay — RGBA with transparent gap
       `[1:v]format=rgba[pub]`,
       // Composite clip under publisher
-      `[clip][pub]overlay=x=0:y=0:shortest=1[base]`,
+      `[0:v][pub]overlay=x=0:y=0:shortest=1[base]`,
       // iPhone UI on top
       `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
       `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
