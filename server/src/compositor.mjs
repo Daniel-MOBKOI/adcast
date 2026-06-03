@@ -16,16 +16,16 @@
  *   Hard cut at 30s
  *
  * SCROLL POSITIONS:
- *   Start   : scrollY = -CREATIVE_TOP (-158)    article top appears at viewport y=158, below UI
+ *   Start   : scrollY = -CREATIVE_TOP (-158)    article top at viewport y=158, below UI
  *   Step 2  : scrollY = topH - H                ADVERTISEMENT bar just enters bottom of viewport
- *   Target  : scrollY = topH + AD_BAR_TOP_H + CREATIVE_H + AD_BAR_BOT_H - H  (both bars fully visible)
- *   End     : scrollY = topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP
+ *   Target  : scrollY = topH - CREATIVE_TOP     ADVERTISEMENT at y=158, SCROLL TO CONT at y=2305
+ *   End     : scrollY = topH + CLIP_H + AD_BAR_TOP_H - CREATIVE_TOP
  *
  * PUBLISHER CANVAS LAYOUT:
  *   [topH]        publisher top image
- *   [41px]        ADVERTISEMENT bar   ← overlaps into creative area
- *   [2184px]      gap (transparent)   ← ad clip shows through
- *   [37px]        SCROLL TO CONTINUE  ← overlaps into creative area  
+ *   [41px]        ADVERTISEMENT bar
+ *   [2106px]      gap (transparent)   ← ad clip shows through (CLIP_H, bars excluded)
+ *   [37px]        SCROLL TO CONTINUE bar
  *   [botH]        publisher bottom image
  */
 
@@ -44,12 +44,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 const W            = 1080;
-const H            = 2342;   // 158 + 2184
+const H            = 2342;   // total canvas height
 const IPHONE_UI_H  = 158;
-const CREATIVE_H   = 2184;
-const CREATIVE_TOP = 158;    // = IPHONE_UI_H
 const AD_BAR_TOP_H = 41;
 const AD_BAR_BOT_H = 37;
+const CREATIVE_TOP = 158;    // = IPHONE_UI_H — top of content area (below status bar)
+const CREATIVE_H   = 2184;   // total content area height (UI to bottom)
+const CLIP_TOP     = CREATIVE_TOP + AD_BAR_TOP_H;  // 199 — clip starts below ADVERTISEMENT bar
+const CLIP_H       = CREATIVE_H - AD_BAR_TOP_H - AD_BAR_BOT_H;  // 2106 — clip height (bars excluded)
 
 // ── Timing ────────────────────────────────────────────────────────────────────
 const FPS           = 30;
@@ -171,8 +173,8 @@ export async function runCompositor({
   const maxScroll    = pubCanvasH - H;
   const scrollStart  = -CREATIVE_TOP;                                              // -158
   const scrollStep2  = topH - H;                                                   // 1297
-  const scrollTarget = topH + AD_BAR_TOP_H + CREATIVE_H + AD_BAR_BOT_H - H;      // both bars fully in viewport
-  const scrollEnd    = Math.min(topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP, maxScroll);
+  const scrollTarget = topH - CREATIVE_TOP;                                        // ADVERTISEMENT top flush at viewport y=158, SCROLL TO CONT flush at y=2305
+  const scrollEnd    = Math.min(topH + AD_BAR_TOP_H + CLIP_H + AD_BAR_BOT_H - CREATIVE_TOP, maxScroll);
 
   // ── Per-frame scroll Y ────────────────────────────────────────────────────
   const frameScrollY = [];
@@ -265,7 +267,7 @@ export async function runCompositor({
   await run(FFMPEG, [
     '-y', '-loop', '1', '-framerate', String(FPS),
     '-i', firstFrame,
-    '-vf', `scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,crop=${W}:${CREATIVE_H},pad=${W}:${H}:0:${CREATIVE_TOP}:color=black`,
+    '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=increase,crop=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
     '-t', CLIP_PLAY_START.toFixed(3),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     freezeStart,
@@ -276,7 +278,7 @@ export async function runCompositor({
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
     '-i', clipPath,
-    '-vf', `scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,crop=${W}:${CREATIVE_H},pad=${W}:${H}:0:${CREATIVE_TOP}:color=black`,
+    '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=increase,crop=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     clipScaled,
   ]);
