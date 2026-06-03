@@ -44,14 +44,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 const W            = 1080;
-const H            = 2341;   // total canvas height (from master asset)
+const H            = 2342;   // even number required for yuv420p (master asset is 2341)
 const IPHONE_UI_H  = 158;
 const AD_BAR_TOP_H = 41;
 const AD_BAR_BOT_H = 37;
 const CREATIVE_TOP = 158;    // = IPHONE_UI_H — top of content area (below status bar)
 const CREATIVE_H   = 2184;   // total content area height (UI to bottom)
 const CLIP_TOP     = CREATIVE_TOP;                  // 158 — clip starts right below iPhone UI (bars overlap into clip)
-const CLIP_H       = H - CLIP_TOP;                  // 2183 — fills canvas exactly (CREATIVE_H=2184 overflows by 1px)
+const CLIP_H       = H - CLIP_TOP;                  // 2184 — fills canvas from CLIP_TOP to bottom, matches CREATIVE_H exactly
 
 // ── Timing ────────────────────────────────────────────────────────────────────
 const FPS           = 30;

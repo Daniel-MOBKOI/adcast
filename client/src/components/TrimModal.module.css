@@ -186,10 +186,10 @@
   flex-shrink: 0;
 }
 
-/* Video sized to match creative unit ratio (1179:2384) */
+/* Video sized to match creative unit ratio (1080:2184) */
 .videoWrap {
   height: calc(100vh - 80px);
-  width: calc((100vh - 80px) * (1179 / 2384));
+  width: calc((100vh - 80px) * (1080 / 2184));
   max-width: 380px;
   background: #000;
   border-radius: 8px;
