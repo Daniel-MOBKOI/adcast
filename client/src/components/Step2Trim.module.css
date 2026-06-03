@@ -1,4 +1,4 @@
-/* Duration counter */
+/* ── Duration counter ── */
 .durationNum {
   font-size: 28px;
   font-weight: 700;
@@ -8,7 +8,7 @@
   line-height: 1;
 }
 
-/* In / Out timestamps */
+/* ── In / Out timestamps ── */
 .timestamps {
   display: flex;
   align-items: stretch;
@@ -97,25 +97,25 @@
 .dimLeft  { left: 0; }
 .dimRight { right: 0; }
 
-/* Selection border */
+/* Selection border — blue to match UI */
 .selBorder {
   position: absolute;
   top: 0;
   height: 100%;
-  border: 2.5px solid #0a0a0a;
+  border: 2.5px solid #2563eb;
   border-radius: 4px;
   pointer-events: none;
   z-index: 3;
   box-sizing: border-box;
 }
 
-/* Playhead */
+/* Playhead — blue */
 .playhead {
   position: absolute;
   top: -2px;
   bottom: -2px;
   width: 2px;
-  background: #ef4444;
+  background: #2563eb;
   border-radius: 1px;
   transform: translateX(-50%);
   pointer-events: none;
@@ -130,10 +130,10 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #ef4444;
+  background: #2563eb;
 }
 
-/* Handles */
+/* Handles — blue pills */
 .handle {
   position: absolute;
   top: 0;
@@ -150,14 +150,14 @@
 .handlePill {
   width: 4px;
   height: 28px;
-  background: #0a0a0a;
+  background: #2563eb;
   border-radius: 99px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
   transition: transform 0.1s;
 }
 .handle:hover .handlePill { transform: scaleX(1.5); }
 
-/* Play button (sidebar row) */
+/* ── Play button (sidebar row) ── */
 .playBtn {
   display: flex;
   align-items: center;
@@ -192,20 +192,24 @@
   flex-shrink: 0;
 }
 
-/* ── Video panel (portrait, no phone chrome) ── */
+/* ── Video panel (portrait 1080:2184, no phone chrome) ── */
 .videoWrap {
   position: relative;
-  /* Portrait 1080:2184 — fills available height */
-  height: calc(100% - 40px);
-  max-height: calc(100vh - 280px);
+  /*
+    Cap height so there's generous padding above the nav bar.
+    280px accounts for: pageHeader (~80px) + navBar (~56px) + centre padding (2×32px) + hint (~40px)
+    Extra 40px gives the breathing room at the bottom.
+  */
+  max-height: calc(100vh - 320px);
   aspect-ratio: 1080 / 2184;
+  width: auto;
   max-width: 100%;
   background: #111;
   border-radius: 16px;
   overflow: hidden;
   box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.18),
-    0 0 0 1px rgba(0,0,0,0.06);
+    0 24px 64px rgba(0, 0, 0, 0.14),
+    0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 .video {
@@ -215,18 +219,27 @@
   display: block;
 }
 
-/* Big centred play overlay */
-.bigPlayBtn {
+/*
+  Small corner play/pause button — no full-frame overlay,
+  just a pill in the bottom-right so the video is always visible.
+*/
+.playOverlayBtn {
   position: absolute;
-  inset: 0;
+  bottom: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  font-size: 15px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.22);
-  border: none;
   cursor: pointer;
-  color: #fff;
-  font-size: 38px;
-  transition: background 0.15s;
+  backdrop-filter: blur(6px);
+  transition: background 0.12s;
+  z-index: 10;
 }
-.bigPlayBtn:hover { background: rgba(0, 0, 0, 0.35); }
+.playOverlayBtn:hover { background: rgba(0, 0, 0, 0.7); }

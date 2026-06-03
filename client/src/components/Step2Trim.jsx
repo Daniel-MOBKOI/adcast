@@ -36,8 +36,8 @@ async function extractThumbs(url, duration, count) {
 }
 
 export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBack }) {
-  const videoRef = useRef(null);
-  const trackRef = useRef(null);
+  const videoRef  = useRef(null);
+  const trackRef  = useRef(null);
 
   const [objectUrl, setObjectUrl] = useState(null);
   const [thumbs,    setThumbs]    = useState([]);
@@ -56,11 +56,35 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
 
   useEffect(() => { setTrimEnd(duration); }, [duration]);
 
+  // Seek to trimStart when start handle moves (not while playing)
   useEffect(() => {
     const v = videoRef.current;
-    if (v && !playing) { v.currentTime = trimStart; setCurrentT(trimStart); }
-  }, [trimStart, playing]);
+    if (v && !playing && dragging === 'start') {
+      v.currentTime = trimStart;
+      setCurrentT(trimStart);
+    }
+  }, [trimStart]);
 
+  // Seek to trimEnd when end handle moves (not while playing)
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v && !playing && dragging === 'end') {
+      v.currentTime = trimEnd;
+      setCurrentT(trimEnd);
+    }
+  }, [trimEnd]);
+
+  // Seek to trimStart when drag is released (always)
+  useEffect(() => {
+    if (dragging !== null) return; // only fires on release
+    const v = videoRef.current;
+    if (v && !playing) {
+      v.currentTime = trimStart;
+      setCurrentT(trimStart);
+    }
+  }, [dragging]);
+
+  // Loop within trim region + track playhead
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -116,7 +140,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   return (
     <div className={layoutStyles.layout}>
 
-      {/* ── LEFT SIDEBAR ── */}
+      {/* LEFT SIDEBAR */}
       <div className={layoutStyles.sidebar}>
 
         <div className={layoutStyles.fieldGroup}>
@@ -204,7 +228,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
 
       </div>
 
-      {/* ── CENTRE: video panel (portrait 1080:2184, no phone chrome) ── */}
+      {/* CENTRE: video panel — portrait 1080:2184, no phone chrome */}
       <div className={layoutStyles.centre}>
         <div className={styles.videoWrap}>
           {objectUrl && (
@@ -216,18 +240,17 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
               muted
             />
           )}
-          {!playing && (
-            <button className={styles.bigPlayBtn} onClick={togglePlay} aria-label="Play">
-              <i className="ti ti-player-play-filled" />
-            </button>
-          )}
+          {/* Play button — small, corner-only, no full overlay */}
+          <button className={styles.playOverlayBtn} onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
+            <i className={`ti ${playing ? 'ti-player-pause-filled' : 'ti-player-play-filled'}`} />
+          </button>
         </div>
         <p className={layoutStyles.centreHint}>
-          Drag the handles on the left to set your in and out points
+          Drag handles to set in and out points — preview updates as you drag
         </p>
       </div>
 
-      {/* ── NAV BAR ── */}
+      {/* NAV BAR */}
       <div className={layoutStyles.navBar}>
         <button className={layoutStyles.btnSecondary} onClick={onBack}>← Back</button>
         <button className={layoutStyles.btnPrimary} onClick={() => onConfirm(trimStart, trimEnd)}>
