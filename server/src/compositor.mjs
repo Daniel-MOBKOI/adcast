@@ -330,12 +330,14 @@ export async function runCompositor({
     // Input 2: iPhone UI
     '-loop', '1', '-i', iphoneScaled,
     '-filter_complex', [
-      // Clip: scale to fill creative area, pad to full canvas, delay by CLIP_START_SEC
+      // Black leader for scroll-in phase (0 → CLIP_START_SEC)
+      `color=black:size=${W}x${H}:rate=${FPS}:duration=${CLIP_START_SEC}[leader]`,
+      // Clip: scale to fill creative area, pad to full canvas
       `[0:v]scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,` +
         `crop=${W}:${CREATIVE_H},` +
-        `pad=${W}:${H}:0:${CREATIVE_TOP}:color=black,` +
-        // Add black padding at the start for the scroll-in phase
-        `tpad=start_duration=${CLIP_START_SEC}:start_mode=black[clip]`,
+        `pad=${W}:${H}:0:${CREATIVE_TOP}:color=black[clipscaled]`,
+      // Concatenate leader + clip so clip starts at CLIP_START_SEC
+      `[leader][clipscaled]concat=n=2:v=1:a=0[clip]`,
       // Publisher overlay — RGBA with transparent gap
       `[1:v]format=rgba[pub]`,
       // Composite clip under publisher
