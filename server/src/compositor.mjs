@@ -315,7 +315,7 @@ export async function runCompositor({
     await run(FFMPEG, [
       '-y', '-loop', '1', '-framerate', String(FPS),
       '-i', lastFrame,
-      '-vf', `scale=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
+      '-vf', `scale=${W}:${H}`,  // last frame already padded — just ensure exact canvas size
       '-t', freezeDur.toFixed(3),
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
       freezeEnd,
