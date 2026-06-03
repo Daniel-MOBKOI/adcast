@@ -114,12 +114,13 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH, adBarTop, adBar
     composites.push({ input: slice, top: botStart - vpTop, left: 0 });
   }
 
-  // Compose onto white base (white shows through gap = clean background behind ad)
+  // Compose onto transparent base — gap stays fully transparent
+  // ffmpeg alpha channel overlay shows clip through gap correctly
   return sharp({
-    create: { width: W, height: H, channels: 3, background: { r: 255, g: 255, b: 255 } }
+    create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } }
   })
   .composite(composites)
-  .jpeg({ quality: 92, mozjpeg: true })
+  .png({ compressionLevel: 1 })
   .toBuffer();
 }
 
@@ -194,7 +195,7 @@ export async function runCompositor({
 
   let done = 0;
   for (const scrollY of uniqueYs) {
-    const fp  = path.join(tmpDir, `u_${scrollY}.jpg`);
+    const fp  = path.join(tmpDir, `u_${scrollY}.png`);
     const buf = await buildFrame({
       scrollY: Math.min(scrollY, pubCanvasH - H),
       topImg: topScaled, topH,
@@ -217,12 +218,13 @@ export async function runCompositor({
   // ── Phase 2: ffmpeg encode ─────────────────────────────────────────────────
   onProgress(69, 'Encoding…');
 
-  // Write concat list
-  const concatFile = path.join(tmpDir, 'frames.txt');
-  const frameDur   = (1 / FPS).toFixed(6);
-  const lines      = frameFiles.map(f => `file '${f}'\nduration ${frameDur}`);
-  lines.push(`file '${frameFiles[frameFiles.length - 1]}'`);
-  fs.writeFileSync(concatFile, lines.join('\n'));
+  // Write sequentially numbered frame files for image2 input
+  // image2 gives ffmpeg perfectly timed frames — no concat timing issues
+  const seqDir = path.join(tmpDir, 'seq');
+  fs.mkdirSync(seqDir);
+  for (let i = 0; i < frameFiles.length; i++) {
+    fs.copyFileSync(frameFiles[i], path.join(seqDir, `f${String(i).padStart(5,'0')}.png`));
+  }
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
@@ -230,27 +232,17 @@ export async function runCompositor({
   const iphoneScaled = path.join(tmpDir, 'iphone-ui.png');
   await sharp(iphoneUiPath).resize(W, IPHONE_UI_H, { fit: 'fill' }).toFile(iphoneScaled);
 
-  // ffmpeg filter chain:
-  //   Input 0: ad clip (trimmed, looped, scaled to fill creative area)
-  //   Input 1: publisher overlay JPEG sequence (from concat)
-  //   Input 2: iPhone UI PNG (fixed top layer)
-  //
-  //   Step 1: Scale clip to fill creative area (W × CREATIVE_H), pad to full canvas
-  //   Step 2: Overlay publisher JPEGs on top — white areas hide clip,
-  //            gap area (white bg we made) would show clip BUT we use
-  //            the overlay with the publisher having white where gap is,
-  //            so we need colorkey to make white transparent in publisher frames
-  //   Step 3: Overlay iPhone UI on top
-
   const ffArgs = [
     '-y',
-    // Input 0: ad clip
+    // Input 0: ad clip — trimmed, looped
     '-ss', (trimStart ?? 0).toFixed(3),
     ...(trimEnd != null ? ['-t', (trimEnd - (trimStart ?? 0)).toFixed(3)] : []),
     '-stream_loop', '-1',
     '-i', clipPath,
-    // Input 1: publisher overlay JPEG sequence
-    '-f', 'concat', '-safe', '0', '-i', concatFile,
+    // Input 1: publisher overlay PNG sequence via image2 (frame-perfect timing)
+    '-framerate', String(FPS),
+    '-f', 'image2',
+    '-i', path.join(seqDir, 'f%05d.png'),
     // Input 2: iPhone UI
     '-loop', '1', '-i', iphoneScaled,
     '-filter_complex', [
@@ -258,9 +250,8 @@ export async function runCompositor({
       `[0:v]scale=${W}:${CREATIVE_H}:force_original_aspect_ratio=increase,` +
         `crop=${W}:${CREATIVE_H},` +
         `pad=${W}:${H}:0:${CREATIVE_TOP}:color=white[clip]`,
-      // Publisher frames: make white (gap area) transparent using colorkey
-      // similarity=0.08 catches near-white from JPEG compression
-      `[1:v]colorkey=white:similarity=0.08:blend=0.0,format=rgba[pub]`,
+      // Publisher frames: already RGBA PNG with transparent gap
+      `[1:v]format=rgba[pub]`,
       // Overlay publisher (with transparent gap) over clip
       `[clip][pub]overlay=x=0:y=0:shortest=1[base]`,
       // Scale iPhone UI to full canvas width, overlay on top
