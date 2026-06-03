@@ -25,14 +25,17 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
   const f = new URL('https://preview-sandbox.celtra.com/preview/' + id + '/frame');
   f.searchParams.set('rp.useFullWidth', '1');
   f.searchParams.set('overrides.deviceInfo.deviceType', 'Phone');
-  f.searchParams.set('rp._useSnapping', '1');
-  f.searchParams.set('rp._snappingFraction', '0.5');
   if (standalone) {
+    // Preview mode — show full standalone chrome with scroll behaviour
     f.searchParams.set('rp.standalonePreview', '1');
+    f.searchParams.set('rp._useSnapping', '1');
+    f.searchParams.set('rp._snappingFraction', '0.5');
   } else {
-    // Recording mode — remove all Celtra chrome
+    // Recording mode — show ad immediately, no scroll wrapper, no bars
     f.searchParams.set('rp.removeAdvertisementBars', '1');
     f.searchParams.set('rp.standalonePreview', '0');
+    f.searchParams.set('rp._useSnapping', '0');
+    f.searchParams.set('rp.expandedOnLoad', '1');
   }
   return f.toString();
 }
