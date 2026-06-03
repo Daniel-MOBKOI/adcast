@@ -1,14 +1,26 @@
-/* ── Duration counter ── */
+/* Duration counter — colour set inline by accentColor */
 .durationNum {
   font-size: 28px;
   font-weight: 700;
-  color: #111;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+  margin-bottom: 6px;
 }
 
-/* ── In / Out timestamps ── */
+.durationBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 99px;
+  border: 1px solid;
+  margin-top: 2px;
+}
+
+/* In / Out timestamps */
 .timestamps {
   display: flex;
   align-items: stretch;
@@ -48,7 +60,7 @@
   flex-shrink: 0;
 }
 
-/* ── Film-strip ── */
+/* Film-strip */
 .filmStrip {
   position: relative;
   display: flex;
@@ -58,7 +70,7 @@
   overflow: hidden;
   user-select: none;
   cursor: default;
-  background: #eee;
+  background: #e8e8e8;
 }
 
 .filmThumb {
@@ -73,10 +85,10 @@
 .filmPlaceholder {
   flex: 1;
   height: 100%;
-  background: linear-gradient(90deg, #e8e8e8 0%, #f0f0f0 50%, #e8e8e8 100%);
+  background: linear-gradient(90deg, #e2e2e2 0%, #ececec 50%, #e2e2e2 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
-  border-right: 1px solid rgba(255,255,255,0.3);
+  border-right: 1px solid rgba(255,255,255,0.25);
 }
 
 @keyframes shimmer {
@@ -84,38 +96,38 @@
   100% { background-position: -200% 0; }
 }
 
-/* Dim regions outside selection */
+/* Dim outside selection */
 .dimLeft,
 .dimRight {
   position: absolute;
   top: 0;
   height: 100%;
-  background: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.58);
   pointer-events: none;
   z-index: 2;
 }
 .dimLeft  { left: 0; }
 .dimRight { right: 0; }
 
-/* Selection border — blue to match UI */
+/* Selection border — colour passed via inline style */
 .selBorder {
   position: absolute;
   top: 0;
   height: 100%;
-  border: 2.5px solid #2563eb;
+  border: 2.5px solid;
   border-radius: 4px;
   pointer-events: none;
   z-index: 3;
   box-sizing: border-box;
 }
 
-/* Playhead — blue */
+/* Playhead — always red */
 .playhead {
   position: absolute;
   top: -2px;
   bottom: -2px;
   width: 2px;
-  background: #2563eb;
+  background: #ef4444;
   border-radius: 1px;
   transform: translateX(-50%);
   pointer-events: none;
@@ -130,10 +142,10 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #2563eb;
+  background: #ef4444;
 }
 
-/* Handles — blue pills */
+/* Handles */
 .handle {
   position: absolute;
   top: 0;
@@ -150,14 +162,13 @@
 .handlePill {
   width: 4px;
   height: 28px;
-  background: #2563eb;
   border-radius: 99px;
-  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.35);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
   transition: transform 0.1s;
 }
 .handle:hover .handlePill { transform: scaleX(1.5); }
 
-/* ── Play button (sidebar row) ── */
+/* Play button (sidebar) */
 .playBtn {
   display: flex;
   align-items: center;
@@ -180,26 +191,33 @@
 }
 
 .playIconWrap {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: #0a0a0a;
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
   flex-shrink: 0;
 }
 
-/* ── Video panel (portrait 1080:2184, no phone chrome) ── */
+/* Instruction paragraph below info box */
+.instructionText {
+  font-size: 11px;
+  color: #888;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.instructionText strong {
+  color: #555;
+  font-weight: 600;
+}
+
+/* Video panel — portrait 1080:2184, no phone chrome */
 .videoWrap {
   position: relative;
-  /*
-    Cap height so there's generous padding above the nav bar.
-    280px accounts for: pageHeader (~80px) + navBar (~56px) + centre padding (2×32px) + hint (~40px)
-    Extra 40px gives the breathing room at the bottom.
-  */
   max-height: calc(100vh - 320px);
   aspect-ratio: 1080 / 2184;
   width: auto;
@@ -208,7 +226,7 @@
   border-radius: 16px;
   overflow: hidden;
   box-shadow:
-    0 24px 64px rgba(0, 0, 0, 0.14),
+    0 20px 56px rgba(0, 0, 0, 0.13),
     0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
@@ -218,28 +236,3 @@
   object-fit: cover;
   display: block;
 }
-
-/*
-  Small corner play/pause button — no full-frame overlay,
-  just a pill in the bottom-right so the video is always visible.
-*/
-.playOverlayBtn {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #fff;
-  font-size: 15px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  backdrop-filter: blur(6px);
-  transition: background 0.12s;
-  z-index: 10;
-}
-.playOverlayBtn:hover { background: rgba(0, 0, 0, 0.7); }

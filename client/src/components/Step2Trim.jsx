@@ -3,6 +3,7 @@ import styles from './Step2Trim.module.css';
 import layoutStyles from './StepLayout.module.css';
 
 const THUMB_COUNT = 16;
+const GOOD_MAX    = 30; // seconds — under this = green, over = red
 
 function fmtTime(s) {
   s = Math.max(0, s);
@@ -18,13 +19,11 @@ async function extractThumbs(url, duration, count) {
   video.muted   = true;
   video.preload = 'auto';
   await new Promise(res => { video.onloadedmetadata = res; video.load(); });
-
   const canvas  = document.createElement('canvas');
   canvas.width  = 120;
   canvas.height = Math.round(120 / (video.videoWidth / video.videoHeight));
   const ctx     = canvas.getContext('2d');
   const thumbs  = [];
-
   for (let i = 0; i < count; i++) {
     const t = (i / (count - 1)) * duration;
     video.currentTime = t;
@@ -56,32 +55,27 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
 
   useEffect(() => { setTrimEnd(duration); }, [duration]);
 
-  // Seek to trimStart when start handle moves (not while playing)
+  // Seek to trimStart while dragging start handle
   useEffect(() => {
     const v = videoRef.current;
     if (v && !playing && dragging === 'start') {
-      v.currentTime = trimStart;
-      setCurrentT(trimStart);
+      v.currentTime = trimStart; setCurrentT(trimStart);
     }
   }, [trimStart]);
 
-  // Seek to trimEnd when end handle moves (not while playing)
+  // Seek to trimEnd while dragging end handle
   useEffect(() => {
     const v = videoRef.current;
     if (v && !playing && dragging === 'end') {
-      v.currentTime = trimEnd;
-      setCurrentT(trimEnd);
+      v.currentTime = trimEnd; setCurrentT(trimEnd);
     }
   }, [trimEnd]);
 
-  // Seek to trimStart when drag is released (always)
+  // On drag release, park at trimStart
   useEffect(() => {
-    if (dragging !== null) return; // only fires on release
+    if (dragging !== null) return;
     const v = videoRef.current;
-    if (v && !playing) {
-      v.currentTime = trimStart;
-      setCurrentT(trimStart);
-    }
+    if (v && !playing) { v.currentTime = trimStart; setCurrentT(trimStart); }
   }, [dragging]);
 
   // Loop within trim region + track playhead
@@ -133,19 +127,28 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   }
 
   const trimDuration = trimEnd - trimStart;
-  const startPct     = getPct(trimStart);
-  const endPct       = getPct(trimEnd);
-  const playheadPct  = getPct(Math.min(currentT, trimEnd));
+  const isGood       = trimDuration <= GOOD_MAX;
+  const accentColor  = isGood ? '#16a34a' : '#dc2626';
+
+  const startPct    = getPct(trimStart);
+  const endPct      = getPct(trimEnd);
+  const playheadPct = getPct(Math.min(currentT, trimEnd));
 
   return (
     <div className={layoutStyles.layout}>
 
-      {/* LEFT SIDEBAR */}
+      {/* ── LEFT SIDEBAR ── */}
       <div className={layoutStyles.sidebar}>
 
+        {/* Duration — coloured by range */}
         <div className={layoutStyles.fieldGroup}>
           <div className={layoutStyles.fieldLabel} style={{ marginBottom: 6 }}>Selected duration</div>
-          <div className={styles.durationNum}>{fmtTime(trimDuration)}</div>
+          <div className={styles.durationNum} style={{ color: accentColor }}>
+            {fmtTime(trimDuration)}
+          </div>
+          <div className={styles.durationBadge} style={{ background: isGood ? '#f0fdf4' : '#fef2f2', color: accentColor, borderColor: isGood ? '#bbf7d0' : '#fecaca' }}>
+            {isGood ? '✓ Good length for export' : '⚠ Trim to under 30s for best results'}
+          </div>
         </div>
 
         <div className={layoutStyles.divider} />
@@ -164,7 +167,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
         </div>
 
         {/* Film-strip */}
-        <div className={styles.filmStrip} ref={trackRef}>
+        <div className={styles.filmStrip} ref={trackRef} style={{ '--accent': accentColor }}>
           {thumbs.length > 0
             ? thumbs.map((src, i) => (
                 <img key={i} src={src} className={styles.filmThumb} alt="" draggable={false} />
@@ -173,62 +176,69 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
                 <div key={i} className={styles.filmPlaceholder} />
               ))
           }
-
-          {/* Dim outside selection */}
           <div className={styles.dimLeft}  style={{ width: `${startPct}%` }} />
           <div className={styles.dimRight} style={{ width: `${100 - endPct}%` }} />
-
-          {/* Selection border */}
           <div
             className={styles.selBorder}
-            style={{ left: `${startPct}%`, width: `${endPct - startPct}%` }}
+            style={{ left: `${startPct}%`, width: `${endPct - startPct}%`, borderColor: accentColor }}
           />
-
-          {/* Playhead */}
+          {/* Playhead — always red */}
           <div className={styles.playhead} style={{ left: `${playheadPct}%` }} />
-
-          {/* Start handle */}
           <div
             className={styles.handle}
             style={{ left: `${startPct}%` }}
             onMouseDown={() => setDragging('start')}
           >
-            <div className={styles.handlePill} />
+            <div className={styles.handlePill} style={{ background: accentColor }} />
           </div>
-
-          {/* End handle */}
           <div
             className={styles.handle}
             style={{ left: `${endPct}%` }}
             onMouseDown={() => setDragging('end')}
           >
-            <div className={styles.handlePill} />
+            <div className={styles.handlePill} style={{ background: accentColor }} />
           </div>
         </div>
 
         <div className={layoutStyles.divider} />
 
-        {/* Play control */}
+        {/* Play/pause — sidebar only, proper icon */}
         <button className={styles.playBtn} onClick={togglePlay}>
           <span className={styles.playIconWrap}>
-            <i className={`ti ${playing ? 'ti-player-pause-filled' : 'ti-player-play-filled'}`} />
+            {playing
+              ? <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="1" y="1" width="3.5" height="10" rx="1"/><rect x="7.5" y="1" width="3.5" height="10" rx="1"/></svg>
+              : <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M2 1.5L11 6L2 10.5V1.5Z"/></svg>
+            }
           </span>
-          {playing ? 'Pause' : 'Preview trim'}
+          {playing ? 'Pause preview' : 'Play preview'}
         </button>
 
         <div className={layoutStyles.divider} />
 
+        {/* Info box */}
         <div className={layoutStyles.infoBox}>
           Trim to remove the scroll at the start — keep from when the ad first appears on screen.
         </div>
 
-        <button className={layoutStyles.btnSecondary} onClick={onReRecord} style={{ width: '100%', justifyContent: 'center', marginTop: 'auto' }}>
+        {/* Placeholder instruction paragraph */}
+        <p className={styles.instructionText}>
+          Your recorded clip will be composited into the publisher scroll animation. 
+          The ad plays during the hold section — ideally between 5 and 30 seconds. 
+          Drag the <strong>In</strong> handle to cut any dead time before the ad loads, 
+          and the <strong>Out</strong> handle to trim the end if needed.
+        </p>
+
+        <button
+          className={layoutStyles.btnSecondary}
+          onClick={onReRecord}
+          style={{ width: '100%', justifyContent: 'center', marginTop: 'auto' }}
+        >
           ↩ Re-record
         </button>
 
       </div>
 
-      {/* CENTRE: video panel — portrait 1080:2184, no phone chrome */}
+      {/* ── CENTRE: video panel — portrait, no phone chrome, no overlay ── */}
       <div className={layoutStyles.centre}>
         <div className={styles.videoWrap}>
           {objectUrl && (
@@ -240,17 +250,13 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
               muted
             />
           )}
-          {/* Play button — small, corner-only, no full overlay */}
-          <button className={styles.playOverlayBtn} onClick={togglePlay} aria-label={playing ? 'Pause' : 'Play'}>
-            <i className={`ti ${playing ? 'ti-player-pause-filled' : 'ti-player-play-filled'}`} />
-          </button>
         </div>
         <p className={layoutStyles.centreHint}>
           Drag handles to set in and out points — preview updates as you drag
         </p>
       </div>
 
-      {/* NAV BAR */}
+      {/* ── NAV BAR ── */}
       <div className={layoutStyles.navBar}>
         <button className={layoutStyles.btnSecondary} onClick={onBack}>← Back</button>
         <button className={layoutStyles.btnPrimary} onClick={() => onConfirm(trimStart, trimEnd)}>
