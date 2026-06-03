@@ -40,10 +40,19 @@ router.post('/', upload.single('clip'), async (req, res) => {
   res.json({ jobId });
 
   // Run compositor in background
+  // Static assets — served from server/publishers/assets/
+  const assetsDir = path.join(__dirname, '..', '..', 'publishers', 'assets');
+  const adBarTopPath    = path.join(assetsDir, 'ad-bar-top.jpg');
+  const adBarBottomPath = path.join(assetsDir, 'ad-bar-bottom.jpg');
+  const iphoneUiPath    = path.join(assetsDir, 'iphone-ui.png');
+
   runCompositor({
     clipPath:            req.file.path,
     publisherTopPath:    publisherPaths.top,
     publisherBottomPath: publisherPaths.bottom,
+    adBarTopPath,
+    adBarBottomPath,
+    iphoneUiPath,
     outPath,
     trimStart: trimStart ? parseFloat(trimStart) : 0,
     trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
