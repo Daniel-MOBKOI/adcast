@@ -44,14 +44,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ── Canvas ────────────────────────────────────────────────────────────────────
 const W            = 1080;
-const H            = 2342;   // total canvas height
+const H            = 2341;   // total canvas height (from master asset)
 const IPHONE_UI_H  = 158;
 const AD_BAR_TOP_H = 41;
 const AD_BAR_BOT_H = 37;
 const CREATIVE_TOP = 158;    // = IPHONE_UI_H — top of content area (below status bar)
 const CREATIVE_H   = 2184;   // total content area height (UI to bottom)
-const CLIP_TOP     = CREATIVE_TOP + AD_BAR_TOP_H;  // 199 — clip starts below ADVERTISEMENT bar
-const CLIP_H       = CREATIVE_H - AD_BAR_TOP_H - AD_BAR_BOT_H;  // 2106 — clip height (bars excluded)
+const CLIP_TOP     = CREATIVE_TOP;                  // 158 — clip starts right below iPhone UI (bars overlap into clip)
+const CLIP_H       = CREATIVE_H;                    // 2184 — clip fills full content area, bars overlay on top
 
 // ── Timing ────────────────────────────────────────────────────────────────────
 const FPS           = 30;
@@ -86,7 +86,7 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH,
                              adBarTop, adBarBot, pubCanvasH }) {
   const barTopStart = topH;
   const gapStart    = topH + AD_BAR_TOP_H;
-  const gapEnd      = gapStart + CLIP_H;
+  const gapEnd      = gapStart + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H);  // 2105 — pure creative gap (bars sit outside)
   const barBotStart = gapEnd;
   const botImgStart = barBotStart + AD_BAR_BOT_H;
 
@@ -140,6 +140,7 @@ export async function runCompositor({
   outPath,
   trimStart = 0,
   trimEnd   = null,
+  cropRect  = null,
   onProgress,
 }) {
   onProgress(5, 'Building your scene…');
@@ -155,7 +156,7 @@ export async function runCompositor({
   const adBarTopSc = await sharp(adBarTopPath).resize(W,AD_BAR_TOP_H,{fit:'fill'}).toBuffer();
   const adBarBotSc = await sharp(adBarBottomPath).resize(W,AD_BAR_BOT_H,{fit:'fill'}).toBuffer();
 
-  const pubCanvasH = topH + AD_BAR_TOP_H + CLIP_H + AD_BAR_BOT_H + botH;
+  const pubCanvasH = topH + AD_BAR_TOP_H + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H) + AD_BAR_BOT_H + botH;  // = topH + CLIP_H + botH
 
   onProgress(10, 'Building your scene…');
 
@@ -173,8 +174,8 @@ export async function runCompositor({
   const maxScroll    = pubCanvasH - H;
   const scrollStart  = -CREATIVE_TOP;                                              // -158
   const scrollStep2  = topH - H;                                                   // 1297
-  const scrollTarget = topH - CREATIVE_TOP;                                        // ADVERTISEMENT top flush at viewport y=158, SCROLL TO CONT flush at y=2305
-  const scrollEnd    = Math.min(topH + AD_BAR_TOP_H + CLIP_H + AD_BAR_BOT_H - CREATIVE_TOP, maxScroll);
+  const scrollTarget = topH - CLIP_TOP;                                            // ADVERTISEMENT at viewport y=158, SCROLL TO CONT at y=2304-2341
+  const scrollEnd    = Math.min(topH + CLIP_H - CLIP_TOP, maxScroll);
 
   // ── Per-frame scroll Y ────────────────────────────────────────────────────
   const frameScrollY = [];
@@ -255,10 +256,26 @@ export async function runCompositor({
   const clipTrimEnd   = trimEnd ?? await probeDur(clipPath);
   const clipDur       = clipTrimEnd - clipTrimStart;
 
+  // ── Crop raw recording to iframe region ──────────────────────────────────
+  // cropRect = { x, y, width, height } in physical pixels of the recorded tab.
+  // The full tab is recorded (cropTo is blocked cross-origin), so we crop here.
+  let sourceClip = clipPath;
+  if (cropRect) {
+    const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
+    const { x, y, width, height } = cropRect;
+    await run(FFMPEG, [
+      '-y', '-i', clipPath,
+      '-vf', `crop=${width}:${height}:${x}:${y}`,
+      '-c:v', 'copy',
+      croppedClip,
+    ]);
+    sourceClip = croppedClip;
+  }
+
   // Extract first frame (for freeze at start)
   const firstFrame  = path.join(tmpDir, 'first-frame.png');
   await run(FFMPEG, [
-    '-y', '-ss', clipTrimStart.toFixed(3), '-i', clipPath,
+    '-y', '-ss', clipTrimStart.toFixed(3), '-i', sourceClip,
     '-vframes', '1', firstFrame,
   ]);
 
@@ -277,7 +294,7 @@ export async function runCompositor({
   const clipScaled = path.join(tmpDir, 'clip-scaled.mp4');
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
-    '-i', clipPath,
+    '-i', sourceClip,
     '-vf', `scale=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     clipScaled,

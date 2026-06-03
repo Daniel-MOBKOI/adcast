@@ -93,8 +93,10 @@
 /* Ad bars in Celtra are ~2.3% top and ~2.3% bottom of the iframe */
 /* We offset the iframe up and increase its height to push bars out of view */
 .frameWrap {
+  /* Sized to match the clip slot ratio 1080:2184 (Creative_Recording_Size_Interscroller).
+     Bars overlay on top of clip edges. Recording captures this region exactly. */
   height: calc(100vh - 160px);
-  width: calc((100vh - 160px) * (1080 / 2342));
+  width: calc((100vh - 160px) * (1080 / 2184));
   flex-shrink: 0;
   overflow: hidden;
   position: relative;
