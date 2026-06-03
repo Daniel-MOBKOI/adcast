@@ -20,7 +20,7 @@ const SERVER_PORT = process.env.PORT || 3001;
 const BASE_URL    = `http://127.0.0.1:${SERVER_PORT}`;
 
 // Temp assets served via /tmp-assets/ route on Express
-const TMP_ASSETS_DIR = path.join(__dirname, '..', '..', 'tmp-assets');
+const TMP_ASSETS_DIR = path.join(__dirname, '..', 'tmp-assets');
 fs.mkdirSync(TMP_ASSETS_DIR, { recursive: true });
 
 // Bundle cache
