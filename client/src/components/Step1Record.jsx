@@ -29,15 +29,11 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
 export default function Step1Record({ onRecordingDone }) {
   const [celtraUrl, setCeltraUrl]       = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const {
-    state, duration, error, blob, cropRect,
-    requestStream, captureCropRect, beginRecording, stop, reset
-  } = useRecorder();
+  const { state, duration, error, blob, requestStream, beginRecording, stop, reset } = useRecorder();
 
   const lightboxIframeRef = useRef(null);
   const prevStateRef      = useRef('idle');
 
-  // Open lightbox once stream permission granted
   useEffect(() => {
     if (prevStateRef.current !== 'streamReady' && state === 'streamReady') {
       setLightboxOpen(true);
@@ -45,11 +41,10 @@ export default function Step1Record({ onRecordingDone }) {
     prevStateRef.current = state;
   }, [state]);
 
-  // When recording finishes, pass blob + cropRect to App
   useEffect(() => {
     if (state === 'done' && blob) {
       setLightboxOpen(false);
-      onRecordingDone(blob, duration, cropRect);
+      onRecordingDone(blob, duration);
     }
   }, [state, blob]);
 
@@ -62,7 +57,6 @@ export default function Step1Record({ onRecordingDone }) {
   async function handleOpenLightbox() {
     reset();
     await requestStream();
-    // cropRect is captured via onMounted after lightbox renders
   }
 
   function handleCloseLightbox() {
@@ -78,17 +72,10 @@ export default function Step1Record({ onRecordingDone }) {
     <>
       <div className={styles.layout}>
         <div className={styles.sidebar}>
-
           <div className={styles.fieldGroup}>
             <div className={styles.fieldHeader}>
               <span className={styles.fieldLabel}>Celtra creative ID or link</span>
-              <button
-                className={styles.iconBtn}
-                onClick={handleReload}
-                title="Reload ad"
-                aria-label="Reload ad"
-                disabled={!celtraUrl.trim()}
-              >
+              <button className={styles.iconBtn} onClick={handleReload} title="Reload ad" disabled={!celtraUrl.trim()}>
                 <i className="ti ti-refresh" aria-hidden="true" />
               </button>
             </div>
@@ -99,17 +86,12 @@ export default function Step1Record({ onRecordingDone }) {
               onChange={e => setCeltraUrl(e.target.value)}
             />
           </div>
-
           <div className={styles.divider} />
-
           <div className={styles.infoBox}>
             Preview the ad in the phone frame to check it looks right. When ready,
-            hit <strong>Open recorder</strong> to capture your session in a clean
-            full-screen view.
+            hit <strong>Open recorder</strong> to capture your session in a clean full-screen view.
           </div>
-
           {error && <p className={styles.errorMsg}>{error}</p>}
-
           <div style={{ marginTop: 'auto' }}>
             <button
               className={styles.btnPrimary}
@@ -120,7 +102,6 @@ export default function Step1Record({ onRecordingDone }) {
               ● Open recorder
             </button>
           </div>
-
         </div>
 
         <div className={styles.centre}>
@@ -129,7 +110,6 @@ export default function Step1Record({ onRecordingDone }) {
               <i className="ti ti-refresh" aria-hidden="true" />
             </button>
           </div>
-
           <IPhoneFrame>
             {previewUrl ? (
               <div className={styles.iframeWrap}>
@@ -155,11 +135,8 @@ export default function Step1Record({ onRecordingDone }) {
               </div>
             )}
           </IPhoneFrame>
-
           <p className={styles.centreHint}>
-            {hasCreative
-              ? 'Preview looks good? Hit "Open recorder" in the sidebar'
-              : 'Paste a Celtra ID or link to load the ad'}
+            {hasCreative ? 'Preview looks good? Hit "Open recorder" in the sidebar' : 'Paste a Celtra ID or link to load the ad'}
           </p>
         </div>
 
@@ -179,7 +156,6 @@ export default function Step1Record({ onRecordingDone }) {
           onRecord={() => beginRecording()}
           onStop={stop}
           onClose={handleCloseLightbox}
-          onMounted={captureCropRect}
         />
       )}
     </>

@@ -1,23 +1,34 @@
 import { useState, useRef, useCallback } from 'react';
 
+/**
+ * useRecorder — two-phase recording:
+ *
+ *   Phase 1 — requestStream()
+ *     Fires getDisplayMedia immediately. Browser permission popup appears.
+ *     Call this BEFORE opening the lightbox so the popup doesn't disrupt the ad.
+ *     State: idle → requesting → streamReady
+ *
+ *   Phase 2 — beginRecording(elementRef)
+ *     Stream is already granted. Crops to element, starts MediaRecorder instantly.
+ *     No popup — no page disruption.
+ *     State: streamReady → recording → done
+ */
 export function useRecorder() {
-  const [state,    setState]    = useState('idle');
+  const [state, setState] = useState('idle'); // idle | requesting | streamReady | recording | done | error
   const [duration, setDuration] = useState(0);
-  const [error,    setError]    = useState(null);
-  const [blob,     setBlob]     = useState(null);
-  const [cropRect, setCropRect] = useState(null);
+  const [error, setError] = useState(null);
+  const [blob, setBlob] = useState(null);
 
   const mediaRecorderRef = useRef(null);
-  const chunksRef        = useRef([]);
-  const streamRef        = useRef(null);
-  const timerRef         = useRef(null);
-  const secondsRef       = useRef(0);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+  const timerRef = useRef(null);
+  const secondsRef = useRef(0);
 
-  // ── Phase 1: request stream ───────────────────────────────────────────────
+  // ── Phase 1: request stream (fires permission popup) ──────────────────────
   const requestStream = useCallback(async () => {
     setError(null);
     setBlob(null);
-    setCropRect(null);
     setState('requesting');
 
     try {
@@ -28,6 +39,7 @@ export function useRecorder() {
       });
       streamRef.current = stream;
 
+      // If user clicks "Stop sharing" in browser UI before recording starts
       stream.getVideoTracks()[0].onended = () => {
         setState('idle');
         streamRef.current = null;
@@ -42,27 +54,23 @@ export function useRecorder() {
     }
   }, []);
 
-  // ── Capture cropRect from a mounted DOM element ───────────────────────────
-  // Called by RecordLightbox after it mounts — frameWrap is in the DOM
-  // and at its correct position, so measurement is accurate.
-  const captureCropRect = useCallback((wrapRef) => {
-    if (!wrapRef?.current) return;
-    const rect = wrapRef.current.getBoundingClientRect();
-    const dpr  = window.devicePixelRatio || 1;
-    // Use dpr for x/y/width/height — getDisplayMedia captures at physical pixels
-    // Compositor will clamp to actual video bounds as a safety net
-    setCropRect({
-      x:      Math.max(0, Math.round(rect.left   * dpr)),
-      y:      Math.max(0, Math.round(rect.top    * dpr)),
-      width:  Math.round(rect.width  * dpr),
-      height: Math.round(rect.height * dpr),
-    });
-  }, []);
-
-  // ── Phase 2: begin recording ──────────────────────────────────────────────
-  const beginRecording = useCallback(async () => {
+  // ── Phase 2: begin recording (stream already granted) ────────────────────
+  const beginRecording = useCallback(async (elementRef) => {
     const stream = streamRef.current;
     if (!stream) { setError('No stream — please try again.'); setState('error'); return; }
+
+    // Attempt cropTo() on the target element (Chrome 122+ Element Capture API)
+    if (elementRef?.current && stream.getVideoTracks().length > 0) {
+      const track = stream.getVideoTracks()[0];
+      if (typeof track.cropTo === 'function') {
+        try {
+          const cropTarget = await CropTarget.fromElement(elementRef.current);
+          await track.cropTo(cropTarget);
+        } catch (cropErr) {
+          console.warn('cropTo() failed, falling back to full tab capture:', cropErr);
+        }
+      }
+    }
 
     const mimeType = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
       .find(m => MediaRecorder.isTypeSupported(m)) || 'video/webm';
@@ -84,6 +92,7 @@ export function useRecorder() {
       streamRef.current = null;
     };
 
+    // If user clicks "Stop sharing" mid-recording
     stream.getVideoTracks()[0].onended = () => {
       if (mr.state === 'recording') mr.stop();
     };
@@ -113,9 +122,8 @@ export function useRecorder() {
     setBlob(null);
     setDuration(0);
     setError(null);
-    setCropRect(null);
     setState('idle');
   }, [stop]);
 
-  return { state, duration, error, blob, cropRect, requestStream, captureCropRect, beginRecording, stop, reset };
+  return { state, duration, error, blob, requestStream, beginRecording, stop, reset };
 }

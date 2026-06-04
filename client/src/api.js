@@ -39,14 +39,13 @@ export async function uploadPublisher(file, label) {
   return res.json();
 }
 
-export async function createJob({ clipBlob, publisherId, publisherLabel, trimStart, trimEnd, cropRect }) {
+export async function createJob({ clipBlob, publisherId, publisherLabel, trimStart, trimEnd }) {
   const fd = new FormData();
   fd.append('clip', clipBlob, 'recording.webm');
   fd.append('publisherId', publisherId);
   fd.append('publisherLabel', publisherLabel || '');
   if (trimStart != null) fd.append('trimStart', trimStart.toFixed(3));
   if (trimEnd   != null) fd.append('trimEnd',   trimEnd.toFixed(3));
-  if (cropRect  != null) fd.append('cropRect',  JSON.stringify(cropRect));
   const res = await apiFetch('/jobs', { method: 'POST', body: fd });
   return res.json();
 }

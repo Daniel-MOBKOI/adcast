@@ -9,22 +9,12 @@ function fmtTime(s) {
 
 export default function RecordLightbox({
   iframeUrl, recorderState, duration, error,
-  iframeRef, onRecord, onStop, onClose, onMounted,
+  iframeRef, onRecord, onStop, onClose,
 }) {
   const isRecording   = recorderState === 'recording';
   const isRequesting  = recorderState === 'requesting';
   const isStreamReady = recorderState === 'streamReady';
   const isDone        = recorderState === 'done';
-
-  const frameWrapRef = useRef(null);
-
-  // Once mounted, measure frameWrap and report cropRect up
-  // This is the correct moment — element is in the DOM at full size
-  useEffect(() => {
-    if (frameWrapRef.current && onMounted) {
-      onMounted(frameWrapRef);
-    }
-  }, []);
 
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape' && !isRecording) onClose(); };
@@ -39,7 +29,6 @@ export default function RecordLightbox({
   return createPortal(
     <div className={styles.overlay}>
       <div className={styles.inner}>
-
         <div className={styles.header}>
           <div className={styles.headerLeft}>
             {isRecording && (
@@ -56,18 +45,10 @@ export default function RecordLightbox({
               </span>
             )}
           </div>
-          <button
-            className={styles.closeBtn}
-            onClick={onClose}
-            disabled={isRecording}
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          <button className={styles.closeBtn} onClick={onClose} disabled={isRecording} aria-label="Close">✕</button>
         </div>
 
-        {/* frameWrapRef measured on mount via onMounted callback */}
-        <div className={styles.frameWrap} ref={frameWrapRef}>
+        <div className={styles.frameWrap}>
           <iframe
             ref={iframeRef}
             src={iframeUrl}
@@ -87,15 +68,12 @@ export default function RecordLightbox({
             onClick={isRecording ? onStop : onRecord}
             disabled={isRequesting}
           >
-            {isRecording ? '■ Stop recording'
-              : isRequesting ? 'Starting…'
-              : '● Start recording'}
+            {isRecording ? '■ Stop recording' : isRequesting ? 'Starting…' : '● Start recording'}
           </button>
           {!isRecording && (
             <p className={styles.hint}>Hit stop when done — clip saves automatically.</p>
           )}
         </div>
-
       </div>
     </div>,
     document.body

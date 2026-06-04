@@ -21,11 +21,9 @@ const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 const jobs = new Map();
 
 // ── Concurrency queue — max 1 compositor job at a time ────────────────────
-// Prevents simultaneous exports from exhausting the 2GB memory limit.
-// Jobs are processed FIFO; queued jobs show status 'queued' until a slot opens.
 let activeJobs = 0;
 const MAX_CONCURRENT = 1;
-const pendingQueue = []; // { fn: async function }[]
+const pendingQueue = [];
 
 function enqueueJob(fn) {
   if (activeJobs < MAX_CONCURRENT) {
@@ -54,29 +52,12 @@ const router = express.Router();
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
-  const { publisherId, publisherLabel, trimStart, trimEnd, cropRect: cropRectRaw } = req.body;
-
-  // Parse cropRect if provided
-  let cropRect = null;
-  if (cropRectRaw) {
-    try {
-      cropRect = JSON.parse(cropRectRaw);
-      if (!['x','y','width','height'].every(k => typeof cropRect[k] === 'number' && cropRect[k] >= 0)) {
-        console.warn('Invalid cropRect, ignoring:', cropRect);
-        cropRect = null;
-      } else {
-        console.log('cropRect received:', cropRect);
-      }
-    } catch (e) {
-      console.warn('Failed to parse cropRect:', e.message);
-    }
-  }
+  const { publisherId, publisherLabel, trimStart, trimEnd } = req.body;
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
   const publisherPaths = resolvePublisherPaths(publisherId);
   if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
-  // Log whether we're using the fast WebM path or the Sharp fallback
   if (publisherPaths.webm) {
     console.log('Using pre-built WebM for publisher:', publisherId);
   } else {
@@ -85,7 +66,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
 
   const jobId   = uuid();
   const outPath = path.join(JOBS_DIR, jobId + '.mp4');
-  const queuePos = pendingQueue.length; // position before this job is added
+  const queuePos = pendingQueue.length;
 
   jobs.set(jobId, {
     status:   activeJobs < MAX_CONCURRENT ? 'queued' : 'waiting',
@@ -107,7 +88,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
 
     await runCompositor({
       clipPath:            req.file.path,
-      publisherWebmPath:   publisherPaths.webm,       // fast path — null falls back to Sharp
+      publisherWebmPath:   publisherPaths.webm,
       publisherTopPath:    publisherPaths.top,
       publisherBottomPath: publisherPaths.bottom,
       adBarTopPath,
@@ -116,7 +97,6 @@ router.post('/', upload.single('clip'), async (req, res) => {
       outPath,
       trimStart: trimStart ? parseFloat(trimStart) : 0,
       trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
-      cropRect,
       onProgress: (pct, msg) => {
         const j = jobs.get(jobId);
         if (j) { j.progress = pct; j.message = msg; }
@@ -154,7 +134,6 @@ router.get('/:id/download', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job || job.status !== 'done') return res.status(404).json({ error: 'Not ready' });
   if (!fs.existsSync(job.outPath)) return res.status(404).json({ error: 'File missing' });
-
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Content-Disposition', 'attachment; filename="adcast.mp4"');
   fs.createReadStream(job.outPath).pipe(res);
