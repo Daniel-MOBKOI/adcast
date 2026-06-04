@@ -9,12 +9,32 @@ function fmtTime(s) {
 
 export default function RecordLightbox({
   iframeUrl, recorderState, duration, error,
-  iframeRef, onRecord, onStop, onClose,
+  iframeRef, onRecord, onStop, onClose, onMounted,
 }) {
   const isRecording   = recorderState === 'recording';
   const isRequesting  = recorderState === 'requesting';
   const isStreamReady = recorderState === 'streamReady';
   const isDone        = recorderState === 'done';
+
+  const frameWrapRef = useRef(null);
+
+  // Measure the phone frame after the portal has fully painted.
+  // 200ms timeout is critical — without it the div hasn't laid out yet.
+  useEffect(() => {
+    if (!onMounted) return;
+    const id = setTimeout(() => {
+      if (frameWrapRef.current) {
+        const rect = frameWrapRef.current.getBoundingClientRect();
+        onMounted({
+          x:      rect.left,
+          y:      rect.top,
+          width:  rect.width,
+          height: rect.height,
+        });
+      }
+    }, 200);
+    return () => clearTimeout(id);
+  }, []); // run once on mount
 
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape' && !isRecording) onClose(); };
@@ -48,7 +68,7 @@ export default function RecordLightbox({
           <button className={styles.closeBtn} onClick={onClose} disabled={isRecording} aria-label="Close">✕</button>
         </div>
 
-        <div className={styles.frameWrap}>
+        <div className={styles.frameWrap} ref={frameWrapRef}>
           <iframe
             ref={iframeRef}
             src={iframeUrl}

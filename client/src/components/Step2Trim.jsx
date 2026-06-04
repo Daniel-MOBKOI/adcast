@@ -14,30 +14,56 @@ function fmtTime(s) {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${ms}`;
 }
 
-async function extractThumbs(url, duration, count) {
+/**
+ * Extract film-strip thumbnails.
+ * If cropRect is provided (physical px), crops each frame to that region.
+ * Output thumbnails are always portrait (120px wide, height proportional to crop).
+ */
+async function extractThumbs(url, duration, count, cropRect) {
   const video   = document.createElement('video');
   video.src     = url;
   video.muted   = true;
   video.preload = 'auto';
   await new Promise(res => { video.onloadedmetadata = res; video.load(); });
-  const canvas  = document.createElement('canvas');
-  canvas.width  = 120;
-  canvas.height = Math.round(120 / (video.videoWidth / video.videoHeight));
-  const ctx     = canvas.getContext('2d');
-  const thumbs  = [];
+
+  // Determine source region in video-space pixels
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  let sx = 0, sy = 0, sw = vw, sh = vh;
+
+  if (cropRect) {
+    // cropRect is in physical screen pixels; video frame is the full captured tab
+    // which matches the physical screen resolution at devicePixelRatio.
+    // Clamp to video bounds.
+    sx = Math.max(0, Math.min(cropRect.x,     vw - 1));
+    sy = Math.max(0, Math.min(cropRect.y,     vh - 1));
+    sw = Math.max(1, Math.min(cropRect.width,  vw - sx));
+    sh = Math.max(1, Math.min(cropRect.height, vh - sy));
+  }
+
+  const thumbW = 120;
+  const thumbH = Math.round(thumbW * (sh / sw));
+  const canvas = document.createElement('canvas');
+  canvas.width  = thumbW;
+  canvas.height = thumbH;
+  const ctx = canvas.getContext('2d');
+
+  const thumbs = [];
   for (let i = 0; i < count; i++) {
     const t = (i / (count - 1)) * duration;
     video.currentTime = t;
     await new Promise(res => { video.onseeked = res; });
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, thumbW, thumbH);
     thumbs.push(canvas.toDataURL('image/jpeg', 0.6));
   }
   return thumbs;
 }
 
-export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBack }) {
-  const videoRef  = useRef(null);
-  const trackRef  = useRef(null);
+export default function Step2Trim({ blob, duration, cropRect, onConfirm, onReRecord, onBack }) {
+  const videoRef    = useRef(null);
+  const canvasRef   = useRef(null);
+  const rafRef      = useRef(null);
+  const trackRef    = useRef(null);
 
   const [objectUrl, setObjectUrl] = useState(null);
   const [thumbs,    setThumbs]    = useState([]);
@@ -46,16 +72,56 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   const [playing,   setPlaying]   = useState(false);
   const [dragging,  setDragging]  = useState(null);
   const [currentT,  setCurrentT]  = useState(0);
+  const [videoReady, setVideoReady] = useState(false);
 
+  // ── Set up object URL and thumbnails ──────────────────────────────────────
   useEffect(() => {
     const url = URL.createObjectURL(blob);
     setObjectUrl(url);
-    extractThumbs(url, duration, THUMB_COUNT).then(setThumbs);
+    extractThumbs(url, duration, THUMB_COUNT, cropRect).then(setThumbs);
     return () => URL.revokeObjectURL(url);
   }, [blob]);
 
   useEffect(() => { setTrimEnd(duration); }, [duration]);
 
+  // ── Canvas crop loop ───────────────────────────────────────────────────────
+  // Draws the cropped region of the hidden video onto the visible canvas.
+  // Runs every animation frame while the video is loaded.
+  useEffect(() => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !videoReady) return;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    let sx = 0, sy = 0, sw = vw, sh = vh;
+    if (cropRect) {
+      sx = Math.max(0, Math.min(cropRect.x,     vw - 1));
+      sy = Math.max(0, Math.min(cropRect.y,     vh - 1));
+      sw = Math.max(1, Math.min(cropRect.width,  vw - sx));
+      sh = Math.max(1, Math.min(cropRect.height, vh - sy));
+    }
+
+    // Size canvas to match the cropped aspect ratio, filling the container
+    // The CSS already constrains the canvas to the portrait preview area.
+    canvas.width  = sw;
+    canvas.height = sh;
+
+    const ctx = canvas.getContext('2d');
+
+    function draw() {
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+      rafRef.current = requestAnimationFrame(draw);
+    }
+    rafRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [videoReady, cropRect]);
+
+  // ── Seek video when handles drag ──────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
     if (v && !playing && dragging === 'start') { v.currentTime = trimStart; setCurrentT(trimStart); }
@@ -72,6 +138,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     if (v && !playing) { v.currentTime = trimStart; setCurrentT(trimStart); }
   }, [dragging]);
 
+  // ── Playback boundary check ───────────────────────────────────────────────
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -83,6 +150,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     return () => v.removeEventListener('timeupdate', check);
   }, [trimStart, trimEnd]);
 
+  // ── Track drag helpers ────────────────────────────────────────────────────
   function getPct(t)    { return (t / duration) * 100; }
   function pctToTime(p) { return Math.max(0, Math.min(duration, (p / 100) * duration)); }
 
@@ -110,6 +178,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     };
   }, [dragging, onMouseMove, onMouseUp]);
 
+  // ── Play / pause ──────────────────────────────────────────────────────────
   function togglePlay() {
     const v = videoRef.current;
     if (!v) return;
@@ -134,9 +203,9 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
           <div className={layoutStyles.fieldLabel} style={{ marginBottom: 6 }}>Selected duration</div>
           <div className={styles.durationNum} style={{ color: accentColor }}>{fmtTime(trimDuration)}</div>
           <div className={styles.durationBadge} style={{
-            background: isGood ? '#f0fdf4' : '#fef2f2',
-            color: accentColor,
-            borderColor: isGood ? '#bbf7d0' : '#fecaca',
+            background:   isGood ? '#f0fdf4' : '#fef2f2',
+            color:        accentColor,
+            borderColor:  isGood ? '#bbf7d0' : '#fecaca',
           }}>
             {isTooShort ? '⚠ Minimum 10 seconds required' : isGood ? '✓ Good length for export' : '⚠ Trim to under 30s for best results'}
           </div>
@@ -200,16 +269,23 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
       </div>
 
       <div className={layoutStyles.centre}>
+        {/* Hidden video element — never shown directly */}
+        {objectUrl && (
+          <video
+            ref={videoRef}
+            src={objectUrl}
+            style={{ display: 'none' }}
+            playsInline
+            muted
+            onLoadedMetadata={() => setVideoReady(true)}
+          />
+        )}
+        {/* Canvas shows only the cropped region */}
         <div className={styles.videoWrap}>
-          {objectUrl && (
-            <video
-              ref={videoRef}
-              src={objectUrl}
-              className={styles.video}
-              playsInline
-              muted
-            />
-          )}
+          <canvas
+            ref={canvasRef}
+            className={styles.video}
+          />
         </div>
         <p className={layoutStyles.centreHint}>
           Drag handles to set in and out points — preview updates as you drag

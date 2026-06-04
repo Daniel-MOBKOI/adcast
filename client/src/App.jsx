@@ -15,6 +15,7 @@ export default function App() {
 
   const [rawBlob,     setRawBlob]     = useState(null);
   const [rawDuration, setRawDuration] = useState(0);
+  const [cropRect,    setCropRect]    = useState(null);
 
   const [clipBlob,      setClipBlob]      = useState(null);
   const [clipDuration,  setClipDuration]  = useState(0);
@@ -56,9 +57,10 @@ export default function App() {
       <div className={styles.card}>
         {step === 1 && (
           <Step1Record
-            onRecordingDone={(blob, duration) => {
+            onRecordingDone={(blob, duration, rect) => {
               setRawBlob(blob);
               setRawDuration(duration);
+              setCropRect(rect);
               setStep(2);
             }}
           />
@@ -67,6 +69,7 @@ export default function App() {
           <Step2Trim
             blob={rawBlob}
             duration={rawDuration}
+            cropRect={cropRect}
             onConfirm={(trimStart, trimEnd) => {
               setClipBlob(rawBlob);
               setClipDuration(trimEnd - trimStart);
@@ -74,7 +77,9 @@ export default function App() {
               setClipTrimEnd(trimEnd);
               setStep(3);
             }}
-            onReRecord={() => { setRawBlob(null); setRawDuration(0); setStep(1); }}
+            onReRecord={() => {
+              setRawBlob(null); setRawDuration(0); setCropRect(null); setStep(1);
+            }}
             onBack={() => setStep(1)}
           />
         )}
@@ -92,6 +97,7 @@ export default function App() {
             clipDuration={clipDuration}
             clipTrimStart={clipTrimStart}
             clipTrimEnd={clipTrimEnd}
+            cropRect={cropRect}
             publisher={publisher}
             jobId={jobId}
             onJobId={setJobId}
@@ -100,6 +106,7 @@ export default function App() {
               setRawBlob(null); setRawDuration(0);
               setClipBlob(null); setClipDuration(0);
               setClipTrimStart(0); setClipTrimEnd(null);
+              setCropRect(null);
               setPublisher(null); setJobId(null);
               setStep(1);
             }}

@@ -29,6 +29,8 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
 export default function Step1Record({ onRecordingDone }) {
   const [celtraUrl, setCeltraUrl]       = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [cropRect, setCropRect]         = useState(null);
+
   const { state, duration, error, blob, requestStream, beginRecording, stop, reset } = useRecorder();
 
   const lightboxIframeRef = useRef(null);
@@ -44,7 +46,7 @@ export default function Step1Record({ onRecordingDone }) {
   useEffect(() => {
     if (state === 'done' && blob) {
       setLightboxOpen(false);
-      onRecordingDone(blob, duration);
+      onRecordingDone(blob, duration, cropRect);
     }
   }, [state, blob]);
 
@@ -56,12 +58,25 @@ export default function Step1Record({ onRecordingDone }) {
 
   async function handleOpenLightbox() {
     reset();
+    setCropRect(null);
     await requestStream();
   }
 
   function handleCloseLightbox() {
     if (state === 'recording') return;
     setLightboxOpen(false);
+  }
+
+  // Called by RecordLightbox after 200ms once the portal has painted.
+  // Converts CSS-pixel rect to physical pixels using devicePixelRatio.
+  function handleMounted(cssRect) {
+    const dpr = window.devicePixelRatio || 1;
+    setCropRect({
+      x:      Math.round(cssRect.x      * dpr),
+      y:      Math.round(cssRect.y      * dpr),
+      width:  Math.round(cssRect.width  * dpr),
+      height: Math.round(cssRect.height * dpr),
+    });
   }
 
   const previewUrl  = celtraUrl.trim() ? creativeFrameUrl(celtraUrl.trim(), { standalone: true })  : null;
@@ -156,6 +171,7 @@ export default function Step1Record({ onRecordingDone }) {
           onRecord={() => beginRecording()}
           onStop={stop}
           onClose={handleCloseLightbox}
+          onMounted={handleMounted}
         />
       )}
     </>
