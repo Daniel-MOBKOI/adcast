@@ -3,8 +3,8 @@ import styles from './Step2Trim.module.css';
 import layoutStyles from './StepLayout.module.css';
 
 const THUMB_COUNT = 16;
-const GOOD_MIN    = 10; // seconds — minimum allowed trim duration
-const GOOD_MAX    = 30; // seconds — under this = green, over = red
+const GOOD_MIN    = 10;
+const GOOD_MAX    = 30;
 
 function fmtTime(s) {
   s = Math.max(0, s);
@@ -14,30 +14,55 @@ function fmtTime(s) {
   return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${ms}`;
 }
 
-async function extractThumbs(url, duration, count) {
+/**
+ * Extract thumbnails from a video, cropping to cropRect if provided.
+ * cropRect is in physical pixels (devicePixelRatio space) — convert to
+ * video-space by scaling proportionally.
+ */
+async function extractThumbs(url, duration, count, cropRect) {
   const video   = document.createElement('video');
   video.src     = url;
   video.muted   = true;
   video.preload = 'auto';
   await new Promise(res => { video.onloadedmetadata = res; video.load(); });
-  const canvas  = document.createElement('canvas');
+
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+
+  // Convert physical-pixel cropRect to video-space coordinates
+  let sx = 0, sy = 0, sw = vw, sh = vh;
+  if (cropRect) {
+    const dpr = window.devicePixelRatio || 1;
+    // cropRect is in physical pixels, video dimensions are also physical
+    // so no dpr conversion needed — they're the same space
+    sx = Math.max(0, Math.min(cropRect.x, vw - 2));
+    sy = Math.max(0, Math.min(cropRect.y, vh - 2));
+    sw = Math.min(cropRect.width,  vw - sx);
+    sh = Math.min(cropRect.height, vh - sy);
+  }
+
+  const thumbH = Math.round(120 * (sh / sw));
+  const canvas = document.createElement('canvas');
   canvas.width  = 120;
-  canvas.height = Math.round(120 / (video.videoWidth / video.videoHeight));
-  const ctx     = canvas.getContext('2d');
-  const thumbs  = [];
+  canvas.height = thumbH;
+  const ctx = canvas.getContext('2d');
+  const thumbs = [];
+
   for (let i = 0; i < count; i++) {
     const t = (i / (count - 1)) * duration;
     video.currentTime = t;
     await new Promise(res => { video.onseeked = res; });
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, 120, thumbH);
     thumbs.push(canvas.toDataURL('image/jpeg', 0.6));
   }
   return thumbs;
 }
 
-export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBack }) {
-  const videoRef  = useRef(null);
-  const trackRef  = useRef(null);
+export default function Step2Trim({ blob, duration, cropRect, onConfirm, onReRecord, onBack }) {
+  const videoRef   = useRef(null);
+  const canvasRef  = useRef(null);
+  const trackRef   = useRef(null);
+  const rafRef     = useRef(null);
 
   const [objectUrl, setObjectUrl] = useState(null);
   const [thumbs,    setThumbs]    = useState([]);
@@ -47,16 +72,54 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   const [dragging,  setDragging]  = useState(null);
   const [currentT,  setCurrentT]  = useState(0);
 
+  // Compute video-space crop coordinates once
+  const cropSrc = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return null;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!cropRect || !vw || !vh) return { sx: 0, sy: 0, sw: vw, sh: vh };
+    const sx = Math.max(0, Math.min(cropRect.x, vw - 2));
+    const sy = Math.max(0, Math.min(cropRect.y, vh - 2));
+    const sw = Math.min(cropRect.width,  vw - sx);
+    const sh = Math.min(cropRect.height, vh - sy);
+    return { sx, sy, sw, sh };
+  }, [cropRect]);
+
+  // Draw current video frame to canvas (cropped)
+  const drawFrame = useCallback(() => {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    const src = cropSrc();
+    if (!src) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width  = src.sw;
+    canvas.height = src.sh;
+    ctx.drawImage(video, src.sx, src.sy, src.sw, src.sh, 0, 0, src.sw, src.sh);
+  }, [cropSrc]);
+
+  // RAF loop while playing
+  useEffect(() => {
+    if (playing) {
+      const loop = () => { drawFrame(); rafRef.current = requestAnimationFrame(loop); };
+      rafRef.current = requestAnimationFrame(loop);
+    } else {
+      cancelAnimationFrame(rafRef.current);
+      drawFrame(); // draw single frame when paused
+    }
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [playing, drawFrame]);
+
   useEffect(() => {
     const url = URL.createObjectURL(blob);
     setObjectUrl(url);
-    extractThumbs(url, duration, THUMB_COUNT).then(setThumbs);
+    extractThumbs(url, duration, THUMB_COUNT, cropRect).then(setThumbs);
     return () => URL.revokeObjectURL(url);
   }, [blob]);
 
   useEffect(() => { setTrimEnd(duration); }, [duration]);
 
-  // Seek to trimStart while dragging start handle
   useEffect(() => {
     const v = videoRef.current;
     if (v && !playing && dragging === 'start') {
@@ -64,7 +127,6 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     }
   }, [trimStart]);
 
-  // Seek to trimEnd while dragging end handle
   useEffect(() => {
     const v = videoRef.current;
     if (v && !playing && dragging === 'end') {
@@ -72,14 +134,12 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     }
   }, [trimEnd]);
 
-  // On drag release, park at trimStart
   useEffect(() => {
     if (dragging !== null) return;
     const v = videoRef.current;
     if (v && !playing) { v.currentTime = trimStart; setCurrentT(trimStart); }
   }, [dragging]);
 
-  // Loop within trim region + track playhead
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -92,6 +152,14 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     v.addEventListener('timeupdate', check);
     return () => v.removeEventListener('timeupdate', check);
   }, [trimStart, trimEnd]);
+
+  // Draw frame when video seeks while paused
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.addEventListener('seeked', drawFrame);
+    return () => v.removeEventListener('seeked', drawFrame);
+  }, [drawFrame]);
 
   function getPct(t)    { return (t / duration) * 100; }
   function pctToTime(p) { return Math.max(0, Math.min(duration, (p / 100) * duration)); }
@@ -130,25 +198,27 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   const trimDuration = trimEnd - trimStart;
   const isTooShort   = trimDuration < GOOD_MIN;
   const isGood       = !isTooShort && trimDuration <= GOOD_MAX;
-  const accentColor  = isGood ? '#16a34a' : '#dc2626'; // red covers both too-short and too-long
-
-  const startPct    = getPct(trimStart);
-  const endPct      = getPct(trimEnd);
-  const playheadPct = getPct(Math.min(currentT, trimEnd));
+  const accentColor  = isGood ? '#16a34a' : '#dc2626';
+  const startPct     = getPct(trimStart);
+  const endPct       = getPct(trimEnd);
+  const playheadPct  = getPct(Math.min(currentT, trimEnd));
 
   return (
     <div className={layoutStyles.layout}>
 
-      {/* ── LEFT SIDEBAR ── */}
+      {/* LEFT SIDEBAR */}
       <div className={layoutStyles.sidebar}>
 
-        {/* Duration — coloured by range */}
         <div className={layoutStyles.fieldGroup}>
           <div className={layoutStyles.fieldLabel} style={{ marginBottom: 6 }}>Selected duration</div>
           <div className={styles.durationNum} style={{ color: accentColor }}>
             {fmtTime(trimDuration)}
           </div>
-          <div className={styles.durationBadge} style={{ background: isGood ? '#f0fdf4' : '#fef2f2', color: accentColor, borderColor: isGood ? '#bbf7d0' : '#fecaca' }}>
+          <div className={styles.durationBadge} style={{
+            background: isGood ? '#f0fdf4' : '#fef2f2',
+            color: accentColor,
+            borderColor: isGood ? '#bbf7d0' : '#fecaca'
+          }}>
             {isTooShort ? '⚠ Minimum 10 seconds required' : isGood ? '✓ Good length for export' : '⚠ Trim to under 30s for best results'}
           </div>
         </div>
@@ -169,7 +239,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
         </div>
 
         {/* Film-strip */}
-        <div className={styles.filmStrip} ref={trackRef} style={{ '--accent': accentColor }}>
+        <div className={styles.filmStrip} ref={trackRef}>
           {thumbs.length > 0
             ? thumbs.map((src, i) => (
                 <img key={i} src={src} className={styles.filmThumb} alt="" draggable={false} />
@@ -180,31 +250,19 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
           }
           <div className={styles.dimLeft}  style={{ width: `${startPct}%` }} />
           <div className={styles.dimRight} style={{ width: `${100 - endPct}%` }} />
-          <div
-            className={styles.selBorder}
-            style={{ left: `${startPct}%`, width: `${endPct - startPct}%`, borderColor: accentColor }}
-          />
-          {/* Playhead — always red */}
+          <div className={styles.selBorder} style={{ left: `${startPct}%`, width: `${endPct - startPct}%`, borderColor: accentColor }} />
           <div className={styles.playhead} style={{ left: `${playheadPct}%` }} />
-          <div
-            className={styles.handle}
-            style={{ left: `${startPct}%` }}
-            onMouseDown={() => setDragging('start')}
-          >
+          <div className={styles.handle} style={{ left: `${startPct}%` }} onMouseDown={() => setDragging('start')}>
             <div className={styles.handlePill} style={{ background: accentColor }} />
           </div>
-          <div
-            className={styles.handle}
-            style={{ left: `${endPct}%` }}
-            onMouseDown={() => setDragging('end')}
-          >
+          <div className={styles.handle} style={{ left: `${endPct}%` }} onMouseDown={() => setDragging('end')}>
             <div className={styles.handlePill} style={{ background: accentColor }} />
           </div>
         </div>
 
         <div className={layoutStyles.divider} />
 
-        {/* Play/pause — sidebar only, proper icon */}
+        {/* Play control */}
         <button className={styles.playBtn} onClick={togglePlay}>
           <span className={styles.playIconWrap}>
             {playing
@@ -217,48 +275,45 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
 
         <div className={layoutStyles.divider} />
 
-        {/* Info box */}
         <div className={layoutStyles.infoBox}>
           Trim to remove the scroll at the start — keep from when the ad first appears on screen.
         </div>
 
-        {/* Placeholder instruction paragraph */}
         <p className={styles.instructionText}>
-          Your recorded clip will be composited into the publisher scroll animation. 
-          The ad plays during the hold section — ideally between 5 and 30 seconds. 
-          Drag the <strong>In</strong> handle to cut any dead time before the ad loads, 
+          Your recorded clip will be composited into the publisher scroll animation.
+          The ad plays during the hold section — ideally between 5 and 30 seconds.
+          Drag the <strong>In</strong> handle to cut any dead time before the ad loads,
           and the <strong>Out</strong> handle to trim the end if needed.
         </p>
 
-        <button
-          className={layoutStyles.btnSecondary}
-          onClick={onReRecord}
-          style={{ width: '100%', justifyContent: 'center', marginTop: 'auto' }}
-        >
+        <button className={layoutStyles.btnSecondary} onClick={onReRecord}
+          style={{ width: '100%', justifyContent: 'center', marginTop: 'auto' }}>
           ↩ Re-record
         </button>
 
       </div>
 
-      {/* ── CENTRE: video panel — portrait, no phone chrome, no overlay ── */}
+      {/* CENTRE: canvas-cropped video preview */}
       <div className={layoutStyles.centre}>
+        {/* Hidden video element — source of truth for playback */}
+        {objectUrl && (
+          <video
+            ref={videoRef}
+            src={objectUrl}
+            playsInline
+            muted
+            style={{ display: 'none' }}
+          />
+        )}
         <div className={styles.videoWrap}>
-          {objectUrl && (
-            <video
-              ref={videoRef}
-              src={objectUrl}
-              className={styles.video}
-              playsInline
-              muted
-            />
-          )}
+          <canvas ref={canvasRef} className={styles.video} />
         </div>
         <p className={layoutStyles.centreHint}>
           Drag handles to set in and out points — preview updates as you drag
         </p>
       </div>
 
-      {/* ── NAV BAR ── */}
+      {/* NAV BAR */}
       <div className={layoutStyles.navBar}>
         <button className={layoutStyles.btnSecondary} onClick={onBack}>← Back</button>
         <button className={layoutStyles.btnPrimary} onClick={() => onConfirm(trimStart, trimEnd)} disabled={isTooShort}>

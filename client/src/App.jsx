@@ -81,6 +81,7 @@ export default function App() {
           <Step2Trim
             blob={rawBlob}
             duration={rawDuration}
+            cropRect={rawCropRect}
             onConfirm={(trimStart, trimEnd) => {
               setClipBlob(rawBlob);
               setClipDuration(trimEnd - trimStart);
