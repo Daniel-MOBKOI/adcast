@@ -1,32 +1,19 @@
 /**
- * Compositor v13 — Pixel-perfect timing from step mockups.
+ * Compositor v15 — Smooth two-phase scroll, no hold freeze.
  *
  * TIMING (30s total @ 30fps = 900 frames):
- *   0.0 – 1.5s : First scroll  — article scrolls to show ad bar entering at bottom
- *   1.5 – 1.9s : Hesitation    — natural finger pause
- *   1.9 – 3.0s : Second scroll — ad fully revealed (ADVERTISEMENT bar at top of creative)
- *   3.0 – 27.0s: Hold          — ad plays, both bars visible
- *   27.0– 30.0s: Scroll out    — bottom publisher covers ad
+ *   0.0 –  2.5s : First scroll  — gentle drift ~20% toward ad (ease out)
+ *   2.5 –  5.0s : Second scroll — full reveal to scrollTarget (ease in/out)
+ *   5.0 – 27.0s : Ad plays — scroll rests at scrollTarget (no hard freeze)
+ *   27.0– 30.0s : Scroll out (ease in/out)
  *
  * CLIP:
- *   Frame 0 frozen until 1.5s (publisher covering clip anyway)
- *   Plays from 1.5s onward
- *   If clip < 24s, last frame frozen to fill hold period
- *   If clip > 27s, plays continuously, scroll-out covers it
+ *   Frozen first frame 0 → 2.5s (publisher covering ad anyway)
+ *   Plays from 2.5s onward
+ *   If clip < 24.5s, last frame frozen to fill to 27s
  *   Hard cut at 30s
  *
- * SCROLL POSITIONS:
- *   Start   : scrollY = -CREATIVE_TOP (-158)    article top at viewport y=158, below UI
- *   Step 2  : scrollY = topH - H                ADVERTISEMENT bar just enters bottom of viewport
- *   Target  : scrollY = topH - CREATIVE_TOP     ADVERTISEMENT at y=158, SCROLL TO CONT at y=2305
- *   End     : scrollY = topH + CLIP_H + AD_BAR_TOP_H - CREATIVE_TOP
- *
- * PUBLISHER CANVAS LAYOUT:
- *   [topH]        publisher top image
- *   [41px]        ADVERTISEMENT bar
- *   [2106px]      gap (transparent)   ← ad clip shows through (CLIP_H, bars excluded)
- *   [37px]        SCROLL TO CONTINUE bar
- *   [botH]        publisher bottom image
+ * NO HOLD FREEZE on scroll — easing curves arrive at destination naturally.
  */
 
 import fs   from 'node:fs';
@@ -42,34 +29,34 @@ const FFMPEG  = ffmpegStatic  || 'ffmpeg';
 const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ── Canvas ────────────────────────────────────────────────────────────────────
+// ── Canvas ─────────────────────────────────────────────────────────────────────
 const W            = 1080;
-const H            = 2342;   // even number required for yuv420p (master asset is 2341)
+const H            = 2342;
 const IPHONE_UI_H  = 158;
 const AD_BAR_TOP_H = 41;
 const AD_BAR_BOT_H = 37;
-const CREATIVE_TOP = 158;    // = IPHONE_UI_H — top of content area (below status bar)
-const CREATIVE_H   = 2184;   // total content area height (UI to bottom)
-const CLIP_TOP     = CREATIVE_TOP;                  // 158 — clip starts right below iPhone UI (bars overlap into clip)
-const CLIP_H       = H - CLIP_TOP;                  // 2184 — fills canvas from CLIP_TOP to bottom, matches CREATIVE_H exactly
+const CREATIVE_TOP = 158;
+const CREATIVE_H   = 2184;
+const CLIP_TOP     = CREATIVE_TOP;
+const CLIP_H       = H - CLIP_TOP;   // 2184
 
-// ── Timing ────────────────────────────────────────────────────────────────────
-const FPS           = 30;
-const TOTAL_SEC     = 30;
-const TOTAL_FRAMES  = TOTAL_SEC * FPS; // 900
+// ── Timing ─────────────────────────────────────────────────────────────────────
+const FPS          = 30;
+const TOTAL_SEC    = 30;
+const TOTAL_FRAMES = TOTAL_SEC * FPS; // 900
 
-const T_SCROLL1_END = 1.5;   // first scroll ends
-const T_PAUSE_END   = 1.9;   // hesitation ends
-const T_REVEAL      = 3.0;   // ad fully revealed
-const T_HOLD_END    = 27.0;  // hold ends, scroll out begins
-const T_END         = 30.0;  // animation ends
+// Phase boundaries
+const T_SCROLL1_END = 2.5;   // first gentle scroll ends
+const T_REVEAL      = 5.0;   // second scroll ends — ad fully revealed
+const T_HOLD_END    = 27.0;  // scroll-out begins
+const T_END         = 30.0;
 
-// Clip: freeze first frame until T_SCROLL1_END, then play
-const CLIP_PLAY_START = T_SCROLL1_END;   // 1.5s
-const CLIP_HOLD_DUR   = T_HOLD_END - CLIP_PLAY_START; // 25.5s of clip needed
-const MIN_CLIP_SEC    = 24.0;  // minimum recording — freeze last frame if shorter
+// Clip starts playing when first scroll ends (no point showing frozen frame through publisher)
+const CLIP_PLAY_START = T_SCROLL1_END;             // 2.5s
+const CLIP_NEEDED     = T_END - CLIP_PLAY_START;   // 27.5s total clip track after play start
+const CLIP_HOLD_DUR   = T_HOLD_END - CLIP_PLAY_START; // 24.5s of clip needed before scroll-out
 
-// ── Easing ────────────────────────────────────────────────────────────────────
+// ── Easing ─────────────────────────────────────────────────────────────────────
 const easeOut   = p => 1 - Math.pow(1 - p, 3);
 const easeInOut = p => p < 0.5 ? 4*p*p*p : 1 - Math.pow(-2*p+2,3)/2;
 
@@ -86,7 +73,7 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH,
                              adBarTop, adBarBot, pubCanvasH }) {
   const barTopStart = topH;
   const gapStart    = topH + AD_BAR_TOP_H;
-  const gapEnd      = gapStart + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H);  // 2105 — publisher gap (clip=2183, bars overlap 41+37px)
+  const gapEnd      = gapStart + (CLIP_H - AD_BAR_TOP_H - AD_BAR_BOT_H);
   const barBotStart = gapEnd;
   const botImgStart = barBotStart + AD_BAR_BOT_H;
 
@@ -101,26 +88,10 @@ async function buildFrame({ scrollY, topImg, topH, botImg, botH,
     composites.push({ input: buf, top: dstTop, left: 0 });
   };
 
-  // Publisher top
-  await slice(topImg,   Math.max(vpTop,0),          Math.min(vpBot,barTopStart),
-                        Math.max(vpTop,0) - vpTop);
-
-  // Ad bar top (overlaps into gap)
-  await slice(adBarTop, Math.max(vpTop,barTopStart)-barTopStart,
-                        Math.min(vpBot,gapStart)-barTopStart,
-                        Math.max(vpTop,barTopStart) - vpTop);
-
-  // Gap = transparent — nothing to composite
-
-  // Ad bar bottom (overlaps into gap from below)
-  await slice(adBarBot, Math.max(vpTop,barBotStart)-barBotStart,
-                        Math.min(vpBot,botImgStart)-barBotStart,
-                        Math.max(vpTop,barBotStart) - vpTop);
-
-  // Publisher bottom
-  await slice(botImg,   Math.max(vpTop,botImgStart)-botImgStart,
-                        Math.min(vpBot,pubCanvasH)-botImgStart,
-                        Math.max(vpTop,botImgStart) - vpTop);
+  await slice(topImg,   Math.max(vpTop,0),           Math.min(vpBot,barTopStart),  Math.max(vpTop,0) - vpTop);
+  await slice(adBarTop, Math.max(vpTop,barTopStart)-barTopStart, Math.min(vpBot,gapStart)-barTopStart, Math.max(vpTop,barTopStart) - vpTop);
+  await slice(adBarBot, Math.max(vpTop,barBotStart)-barBotStart, Math.min(vpBot,botImgStart)-barBotStart, Math.max(vpTop,barBotStart) - vpTop);
+  await slice(botImg,   Math.max(vpTop,botImgStart)-botImgStart, Math.min(vpBot,pubCanvasH)-botImgStart, Math.max(vpTop,botImgStart) - vpTop);
 
   return sharp({
     create: { width:W, height:H, channels:4, background:{ r:0,g:0,b:0,alpha:0 } }
@@ -145,7 +116,7 @@ export async function runCompositor({
 }) {
   onProgress(5, 'Building your scene…');
 
-  // ── Scale assets ──────────────────────────────────────────────────────────
+  // ── Scale assets ────────────────────────────────────────────────────────────
   const topMeta = await sharp(publisherTopPath).metadata();
   const botMeta = await sharp(publisherBottomPath).metadata();
   const topH    = Math.round(topMeta.height * (W / topMeta.width));
@@ -160,55 +131,50 @@ export async function runCompositor({
 
   onProgress(10, 'Building your scene…');
 
-  // ── Scroll positions ──────────────────────────────────────────────────────
-  // scrollY = publisher canvas Y that maps to viewport y=0.
-  // Negative scrollY shifts the publisher DOWN — article top appears below the UI overlay.
-  //
-  //   Start   : -CREATIVE_TOP (-158)   article top at viewport y=158, just below UI
-  //   Step2   : topH - H               ADVERTISEMENT bar just enters bottom of viewport
-  //   Target  : topH - CREATIVE_TOP + AD_BAR_TOP_H
-  //             ADVERTISEMENT spans viewport y=117-158 (overlaps UI zone, still readable)
-  //             SCROLL TO CONTINUE flush at viewport bottom y=2305-2342
-  //   End     : topH + CREATIVE_H + AD_BAR_TOP_H + AD_BAR_BOT_H - CREATIVE_TOP
-  //             bottom publisher image covers ad
+  // ── Scroll positions ────────────────────────────────────────────────────────
   const maxScroll    = pubCanvasH - H;
-  const scrollStart  = -CREATIVE_TOP;                                              // -158
-  const scrollStep2  = topH - H;                                                   // 1297
-  const scrollTarget = topH - CLIP_TOP;                                            // ADVERTISEMENT at viewport y=158, SCROLL TO CONT at y=2304-2341
+  const scrollStart  = -CREATIVE_TOP;          // -158 — article top at y=158, below UI
+  const scrollStep2  = topH - H;               // ADVERTISEMENT bar just enters bottom of viewport
+
+  // Intermediate: only 20% of the way from scrollStart to scrollStep2
+  // This gives a gentle hint of the ad without revealing the bar too early
+  const scrollMid    = Math.round(scrollStart + 0.20 * (scrollStep2 - scrollStart));
+
+  const scrollTarget = topH - CLIP_TOP;        // ADVERTISEMENT at y=158, fully revealed
   const scrollEnd    = Math.min(topH + CLIP_H - CLIP_TOP, maxScroll);
 
-  // ── Per-frame scroll Y ────────────────────────────────────────────────────
+  // ── Per-frame scroll Y ──────────────────────────────────────────────────────
   const frameScrollY = [];
 
   for (let f = 0; f < TOTAL_FRAMES; f++) {
     const t = f / FPS;
-    let sy = scrollStart;
+    let sy;
 
     if (t <= T_SCROLL1_END) {
-      // First scroll: scrollStart → scrollStep2, ease out
+      // Phase 1: gentle drift — scrollStart → scrollMid (ease out, soft landing)
       const p = easeOut(t / T_SCROLL1_END);
-      sy = Math.round(scrollStart + p * (scrollStep2 - scrollStart));
-    } else if (t <= T_PAUSE_END) {
-      // Hesitation: nearly still, tiny drift
-      const p = (t - T_SCROLL1_END) / (T_PAUSE_END - T_SCROLL1_END);
-      sy = scrollStep2 + Math.round(p * (scrollTarget - scrollStep2) * 0.03);
+      sy = scrollStart + p * (scrollMid - scrollStart);
+
     } else if (t <= T_REVEAL) {
-      // Second scroll: scrollStep2 → scrollTarget, ease in/out
-      const p = easeInOut((t - T_PAUSE_END) / (T_REVEAL - T_PAUSE_END));
-      sy = Math.round(scrollStep2 + p * (scrollTarget - scrollStep2));
+      // Phase 2: full reveal — scrollMid → scrollTarget (ease in/out, smooth)
+      const p = easeInOut((t - T_SCROLL1_END) / (T_REVEAL - T_SCROLL1_END));
+      sy = scrollMid + p * (scrollTarget - scrollMid);
+
     } else if (t <= T_HOLD_END) {
-      // Hold
+      // Phase 3: ad plays — scroll rests exactly at scrollTarget (no freeze code needed,
+      // just hold the value; easing already landed here smoothly)
       sy = scrollTarget;
+
     } else {
-      // Scroll out: scrollTarget → scrollEnd, ease in/out
+      // Phase 4: scroll out — scrollTarget → scrollEnd (ease in/out)
       const p = easeInOut((t - T_HOLD_END) / (T_END - T_HOLD_END));
-      sy = Math.round(scrollTarget + p * (scrollEnd - scrollTarget));
+      sy = scrollTarget + p * (scrollEnd - scrollTarget);
     }
 
-    frameScrollY.push(Math.min(Math.max(sy, scrollStart), maxScroll));
+    frameScrollY.push(Math.min(Math.max(Math.round(sy), scrollStart), maxScroll));
   }
 
-  // ── Build publisher overlay frames ────────────────────────────────────────
+  // ── Build publisher overlay frames ──────────────────────────────────────────
   onProgress(12, 'Building your scene…');
 
   const tmpDir      = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
@@ -231,7 +197,7 @@ export async function runCompositor({
 
   const frameFiles = frameScrollY.map(sy => uniqueCache.get(sy));
 
-  // ── Numbered sequence for image2 ─────────────────────────────────────────
+  // ── Numbered sequence for image2 ────────────────────────────────────────────
   onProgress(69, 'Encoding…');
 
   const seqDir = path.join(tmpDir, 'seq');
@@ -245,20 +211,12 @@ export async function runCompositor({
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // ── Build clip track ──────────────────────────────────────────────────────
-  // Clip structure:
-  //   [freeze first frame for CLIP_PLAY_START seconds]
-  //   [play clip from trimStart, scaled to canvas]
-  //   [freeze last frame if clip shorter than needed]
-  //   Total clip track = TOTAL_SEC
-
+  // ── Build clip track ────────────────────────────────────────────────────────
   const clipTrimStart = trimStart ?? 0;
   const clipTrimEnd   = trimEnd ?? await probeDur(clipPath);
   const clipDur       = clipTrimEnd - clipTrimStart;
 
-  // ── Crop raw recording to iframe region ──────────────────────────────────
-  // cropRect = { x, y, width, height } in physical pixels of the recorded tab.
-  // The full tab is recorded (cropTo is blocked cross-origin), so we crop here.
+  // ── Crop raw recording if cropRect provided ──────────────────────────────────
   let sourceClip = clipPath;
   if (cropRect) {
     const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
@@ -272,14 +230,14 @@ export async function runCompositor({
     sourceClip = croppedClip;
   }
 
-  // Extract first frame (for freeze at start)
-  const firstFrame  = path.join(tmpDir, 'first-frame.png');
+  // Extract first frame (freeze before clip plays)
+  const firstFrame = path.join(tmpDir, 'first-frame.png');
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-i', sourceClip,
     '-vframes', '1', firstFrame,
   ]);
 
-  // Freeze first frame video (0 → CLIP_PLAY_START)
+  // Freeze first frame 0 → CLIP_PLAY_START
   const freezeStart = path.join(tmpDir, 'freeze-start.mp4');
   await run(FFMPEG, [
     '-y', '-loop', '1', '-framerate', String(FPS),
@@ -290,7 +248,7 @@ export async function runCompositor({
     freezeStart,
   ]);
 
-  // Scale the main clip
+  // Scale main clip
   const clipScaled = path.join(tmpDir, 'clip-scaled.mp4');
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
@@ -300,22 +258,22 @@ export async function runCompositor({
     clipScaled,
   ]);
 
-  // If clip is shorter than needed, add last-frame freeze
-  const clipNeeded = TOTAL_SEC - CLIP_PLAY_START; // 28.5s
+  // If clip shorter than needed, freeze last frame to fill
   const concatParts = [freezeStart, clipScaled];
+  const clipNeededSec = T_END - CLIP_PLAY_START; // 27.5s
 
-  if (clipDur < clipNeeded) {
-    const lastFrame  = path.join(tmpDir, 'last-frame.png');
+  if (clipDur < clipNeededSec) {
+    const lastFrame = path.join(tmpDir, 'last-frame.png');
     await run(FFMPEG, [
       '-y', '-sseof', '-0.1', '-i', clipScaled,
       '-vframes', '1', lastFrame,
     ]);
     const freezeEnd = path.join(tmpDir, 'freeze-end.mp4');
-    const freezeDur = clipNeeded - clipDur;
+    const freezeDur = clipNeededSec - clipDur;
     await run(FFMPEG, [
       '-y', '-loop', '1', '-framerate', String(FPS),
       '-i', lastFrame,
-      '-vf', `scale=${W}:${H}`,  // last frame already padded — just ensure exact canvas size
+      '-vf', `scale=${W}:${H}`,  // already padded — just lock canvas size
       '-t', freezeDur.toFixed(3),
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
       freezeEnd,
@@ -323,7 +281,7 @@ export async function runCompositor({
     concatParts.push(freezeEnd);
   }
 
-  // Concat all clip parts into full track
+  // Concat clip parts → full track
   const concatList = path.join(tmpDir, 'clip-concat.txt');
   fs.writeFileSync(concatList, concatParts.map(f => `file '${f}'`).join('\n'));
 
@@ -335,7 +293,7 @@ export async function runCompositor({
     fullTrack,
   ]);
 
-  // ── Final compose ─────────────────────────────────────────────────────────
+  // ── Final compose ────────────────────────────────────────────────────────────
   const ffArgs = [
     '-y',
     '-i', fullTrack,
