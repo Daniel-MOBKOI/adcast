@@ -52,6 +52,10 @@ const T_REVEAL      = 4.0;   // second scroll ends — ad fully revealed
 const T_HOLD_END    = 27.0;  // scroll-out begins
 const T_END         = 30.0;
 
+// Scrim: dark overlay above clip, beneath publisher/bars/UI
+const T_SCRIM_PEAK  = 3.0;   // 70% opacity
+const T_SCRIM_END   = 4.0;   // fades to 0% (matches T_REVEAL)
+
 
 // Clip starts playing when first scroll ends (no point showing frozen frame through publisher)
 const CLIP_PLAY_START = T_REVEAL;                  // 4.0s
@@ -140,7 +144,7 @@ export async function runCompositor({
 
   // Intermediate: only 20% of the way from scrollStart to scrollStep2
   // This gives a gentle hint of the ad without revealing the bar too early
-  const scrollMid    = Math.round(scrollStart + 0.35 * (scrollStep2 - scrollStart));
+  const scrollMid    = Math.round(scrollStart + 0.50 * (scrollStep2 - scrollStart));
 
   const scrollTarget = topH - CLIP_TOP;        // ADVERTISEMENT at y=158, fully revealed
   const scrollEnd    = Math.min(topH + CLIP_H - CLIP_TOP, maxScroll);
@@ -179,6 +183,24 @@ export async function runCompositor({
     frameScrollY.push(Math.min(Math.max(Math.round(sy), scrollStart), maxScroll));
   }
 
+  // ── Per-frame scrim alpha (0–255) ──────────────────────────────────────────
+  // Dark overlay sits above the clip, beneath publisher/ad-bars/iPhone UI.
+  // Fades in during scroll, peaks at T_SCRIM_PEAK, fully gone by T_SCRIM_END.
+  const frameScrimAlpha = [];
+  for (let f = 0; f < TOTAL_FRAMES; f++) {
+    const t = f / FPS;
+    let alpha = 0;
+    if (t >= T_SCRIM_PEAK && t <= T_SCRIM_END) {
+      // Linear fade out: 70% → 0% over 1 second
+      const p = (t - T_SCRIM_PEAK) / (T_SCRIM_END - T_SCRIM_PEAK);
+      alpha = Math.round(0.70 * 255 * (1 - p));
+    } else if (t < T_SCRIM_PEAK) {
+      // Before peak: not needed for current timing (scrim appears at peak)
+      alpha = 0;
+    }
+    frameScrimAlpha.push(alpha);
+  }
+
   // ── Build publisher overlay frames ──────────────────────────────────────────
   onProgress(12, 'Building your scene…');
 
@@ -186,6 +208,17 @@ export async function runCompositor({
   const uniqueCache = new Map();
   const uniqueYs    = [...new Set(frameScrollY)];
   let   built       = 0;
+
+  // Unique scrim buffers keyed by alpha value
+  const scrimCache  = new Map();
+  const uniqueAlphas = [...new Set(frameScrimAlpha)];
+  for (const alpha of uniqueAlphas) {
+    if (alpha === 0) { scrimCache.set(0, null); continue; } // transparent — skip composite
+    const buf = await sharp({
+      create: { width: W, height: H, channels: 4, background: { r: 0, g: 0, b: 0, alpha } }
+    }).png({ compressionLevel: 1 }).toBuffer();
+    scrimCache.set(alpha, buf);
+  }
 
   for (const sy of uniqueYs) {
     const fp  = path.join(tmpDir, `u_${sy}.png`);
@@ -208,7 +241,32 @@ export async function runCompositor({
   const seqDir = path.join(tmpDir, 'seq');
   fs.mkdirSync(seqDir);
   for (let i = 0; i < frameFiles.length; i++) {
+    const scrimAlpha = frameScrimAlpha[i];
+    const scrimBuf   = scrimCache.get(scrimAlpha);
+    if (scrimBuf) {
+      // Composite scrim above clip frame (publisher frame is transparent in clip area)
+      // We bake the scrim into the clip track instead — insert as overlay in ffmpeg filter
+      // Store scrim alpha for this frame so ffmpeg can apply it
+    }
     fs.copyFileSync(frameFiles[i], path.join(seqDir, `f${String(i).padStart(5,'0')}.png`));
+  }
+
+  // Write scrim frames as separate image sequence for ffmpeg overlay
+  const scrimDir = path.join(tmpDir, 'scrim');
+  fs.mkdirSync(scrimDir);
+  for (let i = 0; i < TOTAL_FRAMES; i++) {
+    const alpha    = frameScrimAlpha[i];
+    const scrimBuf = scrimCache.get(alpha);
+    const scrimPath = path.join(scrimDir, `s${String(i).padStart(5,'0')}.png`);
+    if (scrimBuf) {
+      fs.writeFileSync(scrimPath, scrimBuf);
+    } else {
+      // Fully transparent frame
+      const emptyBuf = await sharp({
+        create: { width: W, height: H, channels: 4, background: { r:0,g:0,b:0,alpha:0 } }
+      }).png({ compressionLevel: 1 }).toBuffer();
+      fs.writeFileSync(scrimPath, emptyBuf);
+    }
   }
 
   const iphoneScaled = path.join(tmpDir, 'iphone-ui.png');
@@ -301,14 +359,18 @@ export async function runCompositor({
   // ── Final compose ────────────────────────────────────────────────────────────
   const ffArgs = [
     '-y',
-    '-i', fullTrack,
+    '-i', fullTrack,                                                           // [0] clip
+    '-loop', '1', '-i', iphoneScaled,                                          // [1] iPhone UI
     '-framerate', String(FPS), '-r', String(FPS), '-f', 'image2',
-    '-i', path.join(seqDir, 'f%05d.png'),
-    '-loop', '1', '-i', iphoneScaled,
+    '-i', path.join(scrimDir, 's%05d.png'),                                   // [2] scrim
+    '-framerate', String(FPS), '-r', String(FPS), '-f', 'image2',
+    '-i', path.join(seqDir, 'f%05d.png'),                                     // [3] publisher
     '-filter_complex', [
-      `[1:v]format=rgba[pub]`,
-      `[0:v][pub]overlay=x=0:y=0:shortest=1[base]`,
-      `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
+      `[3:v]format=rgba[pub]`,
+      `[2:v]format=rgba[scrim]`,
+      `[0:v][scrim]overlay=x=0:y=0:shortest=1[clipped]`,
+      `[clipped][pub]overlay=x=0:y=0:shortest=1[base]`,
+      `[1:v]scale=${W}:${IPHONE_UI_H}[ui]`,
       `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
