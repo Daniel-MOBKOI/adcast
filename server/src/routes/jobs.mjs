@@ -17,42 +17,31 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 
+// In-memory job store (sufficient for a small team tool)
 const jobs = new Map();
 
 const router = express.Router();
 
-// POST /api/jobs
+// POST /api/jobs  — multipart: clip (webm), publisherId, publisherLabel
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
-  const { publisherId, publisherLabel, trimStart, trimEnd, cropRect: cropRectRaw } = req.body;
+  const { publisherId, publisherLabel, trimStart, trimEnd } = req.body;
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
+  // Resolve publisher to top + bottom image paths server-side
   const publisherPaths = resolvePublisherPaths(publisherId);
   if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
-  // Parse cropRect if provided — { x, y, width, height } in physical pixels
-  let cropRect = null;
-  if (cropRectRaw) {
-    try {
-      cropRect = JSON.parse(cropRectRaw);
-      // Validate all fields are positive numbers
-      if (!['x','y','width','height'].every(k => typeof cropRect[k] === 'number' && cropRect[k] >= 0)) {
-        console.warn('Invalid cropRect, ignoring:', cropRect);
-        cropRect = null;
-      }
-    } catch (e) {
-      console.warn('Failed to parse cropRect, ignoring:', e.message);
-    }
-  }
-
-  const jobId  = uuid();
+  const jobId = uuid();
   const outPath = path.join(JOBS_DIR, jobId + '.mp4');
 
   jobs.set(jobId, { status: 'queued', progress: 0, outPath, error: null });
   res.json({ jobId });
 
-  const assetsDir       = path.join(__dirname, '..', '..', 'publishers', 'assets');
+  // Run compositor in background
+  // Static assets — served from server/publishers/assets/
+  const assetsDir = path.join(__dirname, '..', '..', 'publishers', 'assets');
   const adBarTopPath    = path.join(assetsDir, 'ad-bar-top.jpg');
   const adBarBottomPath = path.join(assetsDir, 'ad-bar-bottom.jpg');
   const iphoneUiPath    = path.join(assetsDir, 'iphone-ui.png');
@@ -67,7 +56,6 @@ router.post('/', upload.single('clip'), async (req, res) => {
     outPath,
     trimStart: trimStart ? parseFloat(trimStart) : 0,
     trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
-    cropRect,
     onProgress: (pct, msg) => {
       const job = jobs.get(jobId);
       if (job) { job.progress = pct; job.message = msg; }
@@ -86,7 +74,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
     });
 });
 
-// GET /api/jobs/:id
+// GET /api/jobs/:id — poll status
 router.get('/:id', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -99,7 +87,7 @@ router.get('/:id', (req, res) => {
   });
 });
 
-// GET /api/jobs/:id/download
+// GET /api/jobs/:id/download — stream the finished MP4
 router.get('/:id/download', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job || job.status !== 'done') return res.status(404).json({ error: 'Not ready' });

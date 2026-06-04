@@ -15,7 +15,6 @@ export default function App() {
 
   const [rawBlob,     setRawBlob]     = useState(null);
   const [rawDuration, setRawDuration] = useState(0);
-  const [rawCropRect, setRawCropRect] = useState(null);
 
   const [clipBlob,      setClipBlob]      = useState(null);
   const [clipDuration,  setClipDuration]  = useState(0);
@@ -68,10 +67,9 @@ export default function App() {
       <div className={styles.card}>
         {step === 1 && (
           <Step1Record
-            onRecordingDone={(blob, duration, cropRect) => {
+            onRecordingDone={(blob, duration) => {
               setRawBlob(blob);
               setRawDuration(duration);
-              setRawCropRect(cropRect);
               setStep(2);
             }}
           />
@@ -91,7 +89,6 @@ export default function App() {
             onReRecord={() => {
               setRawBlob(null);
               setRawDuration(0);
-              setRawCropRect(null);
               setStep(1);
             }}
             onBack={() => setStep(1)}
@@ -113,7 +110,6 @@ export default function App() {
             clipDuration={clipDuration}
             clipTrimStart={clipTrimStart}
             clipTrimEnd={clipTrimEnd}
-            cropRect={rawCropRect}
             publisher={publisher}
             jobId={jobId}
             onJobId={setJobId}
@@ -121,7 +117,6 @@ export default function App() {
             onNew={() => {
               setRawBlob(null);
               setRawDuration(0);
-              setRawCropRect(null);
               setClipBlob(null);
               setClipDuration(0);
               setClipTrimStart(0);

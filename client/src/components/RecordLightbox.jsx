@@ -9,7 +9,7 @@ function fmtTime(s) {
 
 export default function RecordLightbox({
   iframeUrl, recorderState, duration, error,
-  iframeRef, frameWrapRef, onRecord, onStop, onClose,
+  iframeRef, onRecord, onStop, onClose,
 }) {
   const isRecording   = recorderState === 'recording';
   const isRequesting  = recorderState === 'requesting';
@@ -56,8 +56,7 @@ export default function RecordLightbox({
           </button>
         </div>
 
-        {/* frameWrapRef attached here — this is what gets measured for cropRect */}
-        <div className={styles.frameWrap} ref={frameWrapRef}>
+        <div className={styles.frameWrap}>
           <iframe
             ref={iframeRef}
             src={iframeUrl}
