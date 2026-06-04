@@ -24,12 +24,13 @@ export default function RecordLightbox({
     if (!onMounted) return;
     const id = setTimeout(() => {
       if (frameWrapRef.current) {
-        const rect = frameWrapRef.current.getBoundingClientRect();
+        const rect  = frameWrapRef.current.getBoundingClientRect();
+        const inset = 2; // exclude the blue border outline
         onMounted({
-          x:      rect.left,
-          y:      rect.top,
-          width:  rect.width,
-          height: rect.height,
+          x:      rect.left   + inset,
+          y:      rect.top    + inset,
+          width:  rect.width  - inset * 2,
+          height: rect.height - inset * 2,
         });
       }
     }, 200);
