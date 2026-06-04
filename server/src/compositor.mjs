@@ -103,7 +103,8 @@ export async function runCompositor({
     await run(FFMPEG, [
       '-y', '-i', clipPath,
       '-vf', `crop=${width}:${height}:${x}:${y}`,
-      '-c:v', 'copy', croppedClip,
+      '-c:v', 'libvpx', '-b:v', '4M', '-threads', '1',
+      croppedClip,
     ]);
     sourceClip = croppedClip;
   }
@@ -321,7 +322,7 @@ async function runCompositorLegacy({
   if (cropRect) {
     const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
     const { x, y, width, height } = cropRect;
-    await run(FFMPEG, ['-y','-i',clipPath,'-vf',`crop=${width}:${height}:${x}:${y}`,'-c:v','copy',croppedClip]);
+    await run(FFMPEG, ['-y','-i',clipPath,'-vf',`crop=${width}:${height}:${x}:${y}`,'-c:v','libvpx','-b:v','4M','-threads','1',croppedClip]);
     sourceClip = croppedClip;
   }
   const firstFrame = path.join(tmpDir, 'first-frame.png');
