@@ -46,15 +46,19 @@ const TOTAL_SEC    = 30;
 const TOTAL_FRAMES = TOTAL_SEC * FPS; // 900
 
 // Phase boundaries
-const T_SCROLL1_END = 2.5;   // first gentle scroll ends
-const T_REVEAL      = 5.0;   // second scroll ends — ad fully revealed
+const T_HOLD1_END   = 1.0;   // initial hold ends
+const T_SCROLL1_END = 2.5;   // first scroll ends (35% drift)
+const T_REVEAL      = 4.0;   // second scroll ends — ad fully revealed
+const T_HOLD_END    = 27.0;  // scroll-out begins
+const T_END         = 30.0;
+
 const T_HOLD_END    = 27.0;  // scroll-out begins
 const T_END         = 30.0;
 
 // Clip starts playing when first scroll ends (no point showing frozen frame through publisher)
-const CLIP_PLAY_START = T_SCROLL1_END;             // 2.5s
-const CLIP_NEEDED     = T_END - CLIP_PLAY_START;   // 27.5s total clip track after play start
-const CLIP_HOLD_DUR   = T_HOLD_END - CLIP_PLAY_START; // 24.5s of clip needed before scroll-out
+const CLIP_PLAY_START = T_REVEAL;                  // 4.0s
+const CLIP_NEEDED     = T_END - CLIP_PLAY_START;   // 26.0s
+const CLIP_HOLD_DUR   = T_HOLD_END - CLIP_PLAY_START; // 23.0s of clip needed before scroll-out
 
 // ── Easing ─────────────────────────────────────────────────────────────────────
 const easeOut   = p => 1 - Math.pow(1 - p, 3);
@@ -138,7 +142,7 @@ export async function runCompositor({
 
   // Intermediate: only 20% of the way from scrollStart to scrollStep2
   // This gives a gentle hint of the ad without revealing the bar too early
-  const scrollMid    = Math.round(scrollStart + 0.20 * (scrollStep2 - scrollStart));
+  const scrollMid    = Math.round(scrollStart + 0.35 * (scrollStep2 - scrollStart));
 
   const scrollTarget = topH - CLIP_TOP;        // ADVERTISEMENT at y=158, fully revealed
   const scrollEnd    = Math.min(topH + CLIP_H - CLIP_TOP, maxScroll);
@@ -150,23 +154,26 @@ export async function runCompositor({
     const t = f / FPS;
     let sy;
 
-    if (t <= T_SCROLL1_END) {
-      // Phase 1: gentle drift — scrollStart → scrollMid (ease out, soft landing)
-      const p = easeOut(t / T_SCROLL1_END);
+    if (t <= T_HOLD1_END) {
+      // Phase 1: initial hold — no movement, article sits at scrollStart
+      sy = scrollStart;
+
+    } else if (t <= T_SCROLL1_END) {
+      // Phase 2: first scroll — gentle 35% drift toward ad (ease out)
+      const p = easeOut((t - T_HOLD1_END) / (T_SCROLL1_END - T_HOLD1_END));
       sy = scrollStart + p * (scrollMid - scrollStart);
 
     } else if (t <= T_REVEAL) {
-      // Phase 2: full reveal — scrollMid → scrollTarget (ease in/out, smooth)
+      // Phase 3: second scroll — full reveal scrollMid → scrollTarget (ease in/out)
       const p = easeInOut((t - T_SCROLL1_END) / (T_REVEAL - T_SCROLL1_END));
       sy = scrollMid + p * (scrollTarget - scrollMid);
 
     } else if (t <= T_HOLD_END) {
-      // Phase 3: ad plays — scroll rests exactly at scrollTarget (no freeze code needed,
-      // just hold the value; easing already landed here smoothly)
+      // Phase 4: ad plays — rests at scrollTarget
       sy = scrollTarget;
 
     } else {
-      // Phase 4: scroll out — scrollTarget → scrollEnd (ease in/out)
+      // Phase 5: scroll out — scrollTarget → scrollEnd (ease in/out)
       const p = easeInOut((t - T_HOLD_END) / (T_END - T_HOLD_END));
       sy = scrollTarget + p * (scrollEnd - scrollTarget);
     }
@@ -260,7 +267,7 @@ export async function runCompositor({
 
   // If clip shorter than needed, freeze last frame to fill
   const concatParts = [freezeStart, clipScaled];
-  const clipNeededSec = T_END - CLIP_PLAY_START; // 27.5s
+  const clipNeededSec = T_END - CLIP_PLAY_START; // 26.0s
 
   if (clipDur < clipNeededSec) {
     const lastFrame = path.join(tmpDir, 'last-frame.png');
