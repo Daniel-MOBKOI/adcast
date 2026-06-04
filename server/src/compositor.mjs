@@ -218,7 +218,7 @@ export async function runCompositor({
 
 
   const iphoneScaled = path.join(tmpDir, 'iphone-ui.png');
-  await sharp(iphoneUiPath).resize(W, IPHONE_UI_H, { fit:'fill' }).toFile(iphoneScaled);
+  await sharp(iphoneUiPath).resize(W, IPHONE_UI_H + 1, { fit:'fill' }).toFile(iphoneScaled);
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
@@ -253,7 +253,7 @@ export async function runCompositor({
   await run(FFMPEG, [
     '-y', '-loop', '1', '-framerate', String(FPS),
     '-i', firstFrame,
-    '-vf', `scale=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
+    '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
     '-t', CLIP_PLAY_START.toFixed(3),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     freezeStart,
@@ -264,7 +264,7 @@ export async function runCompositor({
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
     '-i', sourceClip,
-    '-vf', `scale=${W}:${CLIP_H},pad=${W}:${H}:0:${CLIP_TOP}:color=black`,
+    '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
     clipScaled,
   ]);
@@ -321,7 +321,7 @@ export async function runCompositor({
       `[1:v]format=rgba[pub]`,
       `[0:v][scrim]overlay=x=0:y=0:shortest=1[clipped]`,
       `[clipped][pub]overlay=x=0:y=0:shortest=1[base]`,
-      `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
+      `[2:v]scale=${W}:${IPHONE_UI_H + 1}[ui]`,
       `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
