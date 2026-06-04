@@ -9,12 +9,22 @@ function fmtTime(s) {
 
 export default function RecordLightbox({
   iframeUrl, recorderState, duration, error,
-  iframeRef, onRecord, onStop, onClose,
+  iframeRef, onRecord, onStop, onClose, onMounted,
 }) {
   const isRecording   = recorderState === 'recording';
   const isRequesting  = recorderState === 'requesting';
   const isStreamReady = recorderState === 'streamReady';
   const isDone        = recorderState === 'done';
+
+  const frameWrapRef = useRef(null);
+
+  // Once mounted, measure frameWrap and report cropRect up
+  // This is the correct moment — element is in the DOM at full size
+  useEffect(() => {
+    if (frameWrapRef.current && onMounted) {
+      onMounted(frameWrapRef);
+    }
+  }, []);
 
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape' && !isRecording) onClose(); };
@@ -56,7 +66,8 @@ export default function RecordLightbox({
           </button>
         </div>
 
-        <div className={styles.frameWrap}>
+        {/* frameWrapRef measured on mount via onMounted callback */}
+        <div className={styles.frameWrap} ref={frameWrapRef}>
           <iframe
             ref={iframeRef}
             src={iframeUrl}

@@ -54,7 +54,23 @@ const router = express.Router();
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
-  const { publisherId, publisherLabel, trimStart, trimEnd } = req.body;
+  const { publisherId, publisherLabel, trimStart, trimEnd, cropRect: cropRectRaw } = req.body;
+
+  // Parse cropRect if provided
+  let cropRect = null;
+  if (cropRectRaw) {
+    try {
+      cropRect = JSON.parse(cropRectRaw);
+      if (!['x','y','width','height'].every(k => typeof cropRect[k] === 'number' && cropRect[k] >= 0)) {
+        console.warn('Invalid cropRect, ignoring:', cropRect);
+        cropRect = null;
+      } else {
+        console.log('cropRect received:', cropRect);
+      }
+    } catch (e) {
+      console.warn('Failed to parse cropRect:', e.message);
+    }
+  }
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
   const publisherPaths = resolvePublisherPaths(publisherId);
@@ -100,6 +116,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
       outPath,
       trimStart: trimStart ? parseFloat(trimStart) : 0,
       trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
+      cropRect,
       onProgress: (pct, msg) => {
         const j = jobs.get(jobId);
         if (j) { j.progress = pct; j.message = msg; }

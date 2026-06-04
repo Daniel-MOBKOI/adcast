@@ -123,7 +123,7 @@ export async function runCompositor({
     '-y', '-loop', '1', '-framerate', String(FPS), '-i', firstFrame,
     '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
     '-t', CLIP_PLAY_START.toFixed(3),
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-threads', '1',
     freezeStart,
   ]);
 
@@ -133,7 +133,7 @@ export async function runCompositor({
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
     '-i', sourceClip,
     '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-threads', '1',
     clipScaled,
   ]);
 
@@ -167,7 +167,7 @@ export async function runCompositor({
   const fullTrack = path.join(tmpDir, 'full-track.mp4');
   await run(FFMPEG, [
     '-y', '-f', 'concat', '-safe', '0', '-i', concatList,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
+    '-c', 'copy',
     '-t', TOTAL_SEC.toFixed(3),
     fullTrack,
   ]);
@@ -202,7 +202,7 @@ export async function runCompositor({
     '-t', TOTAL_SEC.toFixed(3),
     '-r', String(FPS),
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
-    '-crf', '18', '-preset', 'fast', '-movflags', '+faststart',
+    '-crf', '20', '-preset', 'ultrafast', '-threads', '1', '-movflags', '+faststart',
     outPath,
   ];
 
@@ -366,7 +366,7 @@ async function runCompositorLegacy({
       `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]', '-t', TOTAL_SEC_L.toFixed(3), '-r', String(FPS_L),
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-preset', 'fast', '-movflags', '+faststart',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'ultrafast', '-movflags', '+faststart',
     outPath,
   ]);
 
