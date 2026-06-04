@@ -9,7 +9,7 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-export default function Step3Export({ clipBlob, clipDuration, clipTrimStart, clipTrimEnd, publisher, jobId, onJobId, onBack, onNew }) {
+export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, clipTrimEnd, cropRect, publisher, jobId, onJobId, onBack, onNew }) {
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
@@ -27,7 +27,7 @@ export default function Step3Export({ clipBlob, clipDuration, clipTrimStart, cli
   async function startJob() {
     setStatus('uploading'); setProgress(5); setMessage('Uploading clip…');
     try {
-      const { jobId: id, error } = await createJob({ clipBlob, publisherId: publisher.id, publisherLabel: publisher.label, trimStart: clipTrimStart, trimEnd: clipTrimEnd });
+      const { jobId: id, error } = await createJob({ clipBlob, publisherId: publisher.id, publisherLabel: publisher.label, trimStart: clipTrimStart, trimEnd: clipTrimEnd, cropRect });
       if (error) throw new Error(error);
       onJobId(id);
       setProgress(15); setStatus('processing'); setMessage('Job queued…');

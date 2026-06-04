@@ -11,13 +11,12 @@ import styles from './App.module.css';
 
 export default function App() {
   const [authed, setAuthed] = useState(!!sessionStorage.getItem('adcast_token'));
-  const [step, setStep] = useState(1);
+  const [step,   setStep]   = useState(1);
 
-  // Raw blob from recorder — no trim applied yet
   const [rawBlob,     setRawBlob]     = useState(null);
   const [rawDuration, setRawDuration] = useState(0);
+  const [rawCropRect, setRawCropRect] = useState(null);
 
-  // Trimmed values confirmed in Step 2
   const [clipBlob,      setClipBlob]      = useState(null);
   const [clipDuration,  setClipDuration]  = useState(0);
   const [clipTrimStart, setClipTrimStart] = useState(0);
@@ -69,9 +68,10 @@ export default function App() {
       <div className={styles.card}>
         {step === 1 && (
           <Step1Record
-            onRecordingDone={(blob, duration) => {
+            onRecordingDone={(blob, duration, cropRect) => {
               setRawBlob(blob);
               setRawDuration(duration);
+              setRawCropRect(cropRect);
               setStep(2);
             }}
           />
@@ -91,6 +91,7 @@ export default function App() {
             onReRecord={() => {
               setRawBlob(null);
               setRawDuration(0);
+              setRawCropRect(null);
               setStep(1);
             }}
             onBack={() => setStep(1)}
@@ -112,6 +113,7 @@ export default function App() {
             clipDuration={clipDuration}
             clipTrimStart={clipTrimStart}
             clipTrimEnd={clipTrimEnd}
+            cropRect={rawCropRect}
             publisher={publisher}
             jobId={jobId}
             onJobId={setJobId}
@@ -119,6 +121,7 @@ export default function App() {
             onNew={() => {
               setRawBlob(null);
               setRawDuration(0);
+              setRawCropRect(null);
               setClipBlob(null);
               setClipDuration(0);
               setClipTrimStart(0);

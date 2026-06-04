@@ -27,9 +27,12 @@ function creativeFrameUrl(input, { standalone = true } = {}) {
 }
 
 export default function Step1Record({ onRecordingDone }) {
-  const [celtraUrl, setCeltraUrl]     = useState('');
+  const [celtraUrl, setCeltraUrl]       = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const { state, duration, error, blob, requestStream, beginRecording, stop, reset } = useRecorder();
+  const { state, duration, error, blob, cropRect, requestStream, beginRecording, stop, reset } = useRecorder();
+
+  // Ref attached to the frameWrap div in the lightbox — used to measure cropRect
+  const frameWrapRef      = useRef(null);
   const lightboxIframeRef = useRef(null);
   const prevStateRef      = useRef('idle');
 
@@ -41,11 +44,11 @@ export default function Step1Record({ onRecordingDone }) {
     prevStateRef.current = state;
   }, [state]);
 
-  // When recording finishes, hand off to App and go to Step 2
+  // When recording finishes, hand off blob + cropRect to App
   useEffect(() => {
     if (state === 'done' && blob) {
       setLightboxOpen(false);
-      onRecordingDone(blob, duration);
+      onRecordingDone(blob, duration, cropRect);
     }
   }, [state, blob]);
 
@@ -57,7 +60,8 @@ export default function Step1Record({ onRecordingDone }) {
 
   async function handleOpenLightbox() {
     reset();
-    await requestStream();
+    // Pass frameWrapRef so cropRect is measured before permission popup
+    await requestStream(frameWrapRef);
   }
 
   function handleCloseLightbox() {
@@ -160,7 +164,6 @@ export default function Step1Record({ onRecordingDone }) {
 
         <div className={styles.navBar}>
           <span className={styles.navHint}>Step 1 of 4</span>
-          {/* Next is automatic — fires when recording finishes */}
           <button className={styles.btnPrimary} disabled>
             Record to continue →
           </button>
@@ -174,7 +177,8 @@ export default function Step1Record({ onRecordingDone }) {
           duration={duration}
           error={error}
           iframeRef={lightboxIframeRef}
-          onRecord={() => beginRecording(lightboxIframeRef)}
+          frameWrapRef={frameWrapRef}
+          onRecord={() => beginRecording()}
           onStop={stop}
           onClose={handleCloseLightbox}
         />
