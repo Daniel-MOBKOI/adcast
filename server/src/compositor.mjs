@@ -98,15 +98,31 @@ export async function runCompositor({
   // Crop raw recording if cropRect provided
   let sourceClip = clipPath;
   if (cropRect) {
-    const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
-    const { x, y, width, height } = cropRect;
-    await run(FFMPEG, [
-      '-y', '-i', clipPath,
-      '-vf', `crop=${width}:${height}:${x}:${y}`,
-      '-c:v', 'libvpx', '-b:v', '4M', '-threads', '1',
-      croppedClip,
+    // Probe actual video dimensions first — clamp cropRect to source bounds
+    const probeOut = await run(FFPROBE, [
+      '-v', 'error', '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height',
+      '-of', 'csv=p=0', clipPath,
     ]);
-    sourceClip = croppedClip;
+    const [vw, vh] = probeOut.trim().split(',').map(Number);
+    const cx = Math.max(0, Math.min(cropRect.x, vw - 2));
+    const cy = Math.max(0, Math.min(cropRect.y, vh - 2));
+    const cw = Math.min(cropRect.width,  vw - cx);
+    const ch = Math.min(cropRect.height, vh - cy);
+    // Ensure even dimensions for yuv420p
+    const eww = cw % 2 === 0 ? cw : cw - 1;
+    const ehh = ch % 2 === 0 ? ch : ch - 1;
+    console.log(`Cropping ${vw}x${vh} source to ${eww}x${ehh} at (${cx},${cy})`);
+    if (eww > 0 && ehh > 0) {
+      const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
+      await run(FFMPEG, [
+        '-y', '-i', clipPath,
+        '-vf', `crop=${eww}:${ehh}:${cx}:${cy}`,
+        '-c:v', 'libvpx', '-b:v', '4M', '-threads', '1',
+        croppedClip,
+      ]);
+      sourceClip = croppedClip;
+    }
   }
 
   // Extract first frame for freeze
@@ -320,10 +336,19 @@ async function runCompositorLegacy({
   const clipDur       = clipTrimEnd - clipTrimStart;
   let sourceClip = clipPath;
   if (cropRect) {
-    const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
-    const { x, y, width, height } = cropRect;
-    await run(FFMPEG, ['-y','-i',clipPath,'-vf',`crop=${width}:${height}:${x}:${y}`,'-c:v','libvpx','-b:v','4M','-threads','1',croppedClip]);
-    sourceClip = croppedClip;
+    const probeOut2 = await run(FFPROBE, ['-v','error','-select_streams','v:0','-show_entries','stream=width,height','-of','csv=p=0',clipPath]);
+    const [vw2, vh2] = probeOut2.trim().split(',').map(Number);
+    const cx2 = Math.max(0, Math.min(cropRect.x, vw2 - 2));
+    const cy2 = Math.max(0, Math.min(cropRect.y, vh2 - 2));
+    const cw2 = Math.min(cropRect.width,  vw2 - cx2);
+    const ch2 = Math.min(cropRect.height, vh2 - cy2);
+    const ew2 = cw2 % 2 === 0 ? cw2 : cw2 - 1;
+    const eh2 = ch2 % 2 === 0 ? ch2 : ch2 - 1;
+    if (ew2 > 0 && eh2 > 0) {
+      const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
+      await run(FFMPEG, ['-y','-i',clipPath,'-vf',`crop=${ew2}:${eh2}:${cx2}:${cy2}`,'-c:v','libvpx','-b:v','4M','-threads','1',croppedClip]);
+      sourceClip = croppedClip;
+    }
   }
   const firstFrame = path.join(tmpDir, 'first-frame.png');
   await run(FFMPEG, ['-y','-ss',clipTrimStart.toFixed(3),'-i',sourceClip,'-vframes','1',firstFrame]);

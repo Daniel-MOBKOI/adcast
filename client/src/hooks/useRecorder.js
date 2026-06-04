@@ -49,9 +49,11 @@ export function useRecorder() {
     if (!wrapRef?.current) return;
     const rect = wrapRef.current.getBoundingClientRect();
     const dpr  = window.devicePixelRatio || 1;
+    // Use dpr for x/y/width/height — getDisplayMedia captures at physical pixels
+    // Compositor will clamp to actual video bounds as a safety net
     setCropRect({
-      x:      Math.round(rect.left   * dpr),
-      y:      Math.round(rect.top    * dpr),
+      x:      Math.max(0, Math.round(rect.left   * dpr)),
+      y:      Math.max(0, Math.round(rect.top    * dpr)),
       width:  Math.round(rect.width  * dpr),
       height: Math.round(rect.height * dpr),
     });
