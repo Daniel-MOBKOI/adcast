@@ -1,8 +1,12 @@
 /**
- * Compositor v16 — Pre-built publisher WebM overlay.
+ * Compositor v17 — Pre-built publisher WebM overlay.
  *
- * The publisher scroll animation is a pre-rendered VP9+alpha WebM.
- * Sharp frame-building is eliminated entirely — export drops from ~3min to ~20s.
+ * Changes from v16:
+ *  - iPhone UI overlay: removed shortest=1, use eof_action=repeat so the
+ *    static PNG holds for the full output duration without glitching.
+ *  - Scrim overlay: removed shortest=1 to prevent early cutoff.
+ *  - fullTrack concat: explicit -r and -t to lock duration before final compose.
+ *  - cropRect path removed from fast path (cropTo() handles it client-side now).
  *
  * TIMING (30s @ 30fps = 900 frames) — baked into the publisher WebM:
  *   0.0 –  1.0s : Hold
@@ -42,11 +46,11 @@ const CLIP_TOP    = 158;
 const CLIP_H      = H - CLIP_TOP;  // 2184
 
 // ── Timing ──────────────────────────────────────────────────────────────────
-const FPS           = 30;
-const TOTAL_SEC     = 30;
-const CLIP_PLAY_START = 4.0;  // clip starts playing when ad is fully revealed
-const T_SCRIM_PEAK  = 3.0;
-const T_SCRIM_END   = 4.0;
+const FPS             = 30;
+const TOTAL_SEC       = 30;
+const CLIP_PLAY_START = 4.0;
+const T_SCRIM_PEAK    = 3.0;
+const T_SCRIM_END     = 4.0;
 
 const run = (cmd, args) => new Promise((res, rej) =>
   execFile(cmd, args, { maxBuffer: 1 << 28 }, (e, o, se) =>
@@ -58,8 +62,8 @@ const probeDur = async f => parseFloat(
 
 export async function runCompositor({
   clipPath,
-  publisherWebmPath,    // pre-built VP9+alpha WebM — fast path
-  publisherTopPath,     // fallback for uploaded publishers without WebM
+  publisherWebmPath,
+  publisherTopPath,
   publisherBottomPath,
   adBarTopPath,
   adBarBottomPath,
@@ -70,7 +74,6 @@ export async function runCompositor({
   cropRect  = null,
   onProgress,
 }) {
-  // Route to correct compositor path
   if (!publisherWebmPath) {
     return runCompositorLegacy({
       clipPath, publisherTopPath, publisherBottomPath,
@@ -84,57 +87,27 @@ export async function runCompositor({
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adcast-'));
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // ── Scale iPhone UI ────────────────────────────────────────────────────────
+  // ── Scale iPhone UI to a PNG at exact dimensions ───────────────────────────
   const iphoneScaled = path.join(tmpDir, 'iphone-ui.png');
   await sharp(iphoneUiPath).resize(W, IPHONE_UI_H, { fit: 'fill' }).toFile(iphoneScaled);
 
   onProgress(10, 'Preparing clip…');
 
-  // ── Build clip track ───────────────────────────────────────────────────────
+  // ── Clip track ─────────────────────────────────────────────────────────────
   const clipTrimStart = trimStart ?? 0;
   const clipTrimEnd   = trimEnd ?? await probeDur(clipPath);
   const clipDur       = clipTrimEnd - clipTrimStart;
 
-  // Crop raw recording if cropRect provided
-  let sourceClip = clipPath;
-  if (cropRect) {
-    // Probe actual video dimensions first — clamp cropRect to source bounds
-    const probeOut = await run(FFPROBE, [
-      '-v', 'error', '-select_streams', 'v:0',
-      '-show_entries', 'stream=width,height',
-      '-of', 'csv=p=0', clipPath,
-    ]);
-    const [vw, vh] = probeOut.trim().split(',').map(Number);
-    const cx = Math.max(0, Math.min(cropRect.x, vw - 2));
-    const cy = Math.max(0, Math.min(cropRect.y, vh - 2));
-    const cw = Math.min(cropRect.width,  vw - cx);
-    const ch = Math.min(cropRect.height, vh - cy);
-    // Ensure even dimensions for yuv420p
-    const eww = cw % 2 === 0 ? cw : cw - 1;
-    const ehh = ch % 2 === 0 ? ch : ch - 1;
-    console.log(`Cropping ${vw}x${vh} source to ${eww}x${ehh} at (${cx},${cy})`);
-    if (eww > 0 && ehh > 0) {
-      const croppedClip = path.join(tmpDir, 'clip-cropped.webm');
-      await run(FFMPEG, [
-        '-y', '-i', clipPath,
-        '-vf', `crop=${eww}:${ehh}:${cx}:${cy}`,
-        '-c:v', 'libvpx', '-b:v', '4M', '-threads', '1',
-        croppedClip,
-      ]);
-      sourceClip = croppedClip;
-    }
-  }
-
-  // Extract first frame for freeze
+  // Extract first frame for freeze (seek to trimStart)
   const firstFrame = path.join(tmpDir, 'first-frame.png');
   await run(FFMPEG, [
-    '-y', '-ss', clipTrimStart.toFixed(3), '-i', sourceClip,
+    '-y', '-ss', clipTrimStart.toFixed(3), '-i', clipPath,
     '-vframes', '1', firstFrame,
   ]);
 
   onProgress(15, 'Preparing clip…');
 
-  // Freeze first frame 0 → CLIP_PLAY_START
+  // Freeze first frame 0 → CLIP_PLAY_START (4s)
   const freezeStart = path.join(tmpDir, 'freeze-start.mp4');
   await run(FFMPEG, [
     '-y', '-loop', '1', '-framerate', String(FPS), '-i', firstFrame,
@@ -148,7 +121,7 @@ export async function runCompositor({
   const clipScaled = path.join(tmpDir, 'clip-scaled.mp4');
   await run(FFMPEG, [
     '-y', '-ss', clipTrimStart.toFixed(3), '-t', clipDur.toFixed(3),
-    '-i', sourceClip,
+    '-i', clipPath,
     '-vf', `scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-threads', '1',
     clipScaled,
@@ -156,7 +129,7 @@ export async function runCompositor({
 
   onProgress(30, 'Preparing clip…');
 
-  // Freeze last frame if clip shorter than needed
+  // Freeze last frame if clip shorter than the 26s hold window
   const concatParts   = [freezeStart, clipScaled];
   const clipNeededSec = TOTAL_SEC - CLIP_PLAY_START; // 26.0s
 
@@ -169,23 +142,23 @@ export async function runCompositor({
     const freezeEnd = path.join(tmpDir, 'freeze-end.mp4');
     await run(FFMPEG, [
       '-y', '-loop', '1', '-framerate', String(FPS), '-i', lastFrame,
-      '-vf', `scale=${W}:${H}`,
+      '-vf', `scale=${W}:${H}:force_original_aspect_ratio=disable,setsar=1`,
       '-t', (clipNeededSec - clipDur).toFixed(3),
-      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS),
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', String(FPS), '-threads', '1',
       freezeEnd,
     ]);
     concatParts.push(freezeEnd);
   }
 
-  // Concat → full clip track
+  // Concat all parts into full 30s clip track
   const concatList = path.join(tmpDir, 'clip-concat.txt');
   fs.writeFileSync(concatList, concatParts.map(f => `file '${f}'`).join('\n'));
 
   const fullTrack = path.join(tmpDir, 'full-track.mp4');
   await run(FFMPEG, [
     '-y', '-f', 'concat', '-safe', '0', '-i', concatList,
-    '-c', 'copy',
-    '-t', TOTAL_SEC.toFixed(3),
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+    '-r', String(FPS), '-t', TOTAL_SEC.toFixed(3),
     fullTrack,
   ]);
 
@@ -193,27 +166,34 @@ export async function runCompositor({
 
   // ── Final compose ──────────────────────────────────────────────────────────
   // Inputs:
-  //   [0] full clip track (H.264, yuv420p)
-  //   [1] pre-built publisher WebM (VP9+alpha) — decoded with libvpx-vp9
-  //   [2] iPhone UI PNG (static, looped)
+  //   [0] full clip track     — H.264, yuv420p, exactly 30s
+  //   [1] publisher WebM      — VP9+alpha, decoded with libvpx-vp9
+  //   [2] iPhone UI PNG       — static, looped
   //
-  // Layer order (bottom → top):
+  // Layer order bottom → top:
   //   clip → scrim → publisher WebM → iPhone UI
+  //
+  // Key fixes vs v16:
+  //   - No shortest=1 on scrim overlay (was cutting output early)
+  //   - iPhone UI uses eof_action=repeat instead of shortest=1 (was glitching)
+  //   - Explicit -t on output to hard-lock 30s duration
   const ffArgs = [
     '-y',
-    '-i', fullTrack,                                    // [0] clip
-    '-vcodec', 'libvpx-vp9', '-i', publisherWebmPath,  // [1] publisher WebM (alpha decoded)
-    '-loop', '1', '-i', iphoneScaled,                   // [2] iPhone UI
+    '-i', fullTrack,                                    // [0] clip track
+    '-vcodec', 'libvpx-vp9', '-i', publisherWebmPath,  // [1] publisher WebM
+    '-loop', '1', '-framerate', String(FPS), '-i', iphoneScaled, // [2] iPhone UI
     '-filter_complex', [
-      // Scrim: fades 70%→0% between T_SCRIM_PEAK and T_SCRIM_END
-      `color=black:size=${W}x${H}:rate=${FPS}[blacksrc]`,
+      // Scrim: black, fades 70% → 0% opacity between T_SCRIM_PEAK and T_SCRIM_END
+      `color=black:size=${W}x${H}:rate=${FPS}:duration=${TOTAL_SEC}[blacksrc]`,
       `[blacksrc]format=rgba,fade=t=out:st=${T_SCRIM_PEAK}:d=${T_SCRIM_END - T_SCRIM_PEAK}:alpha=1,colorchannelmixer=aa=0.70[scrim]`,
-      // Composite: clip → scrim → publisher → iPhone UI
-      `[0:v][scrim]overlay=x=0:y=0:shortest=1[clipped]`,
+      // clip + scrim (no shortest — both are 30s)
+      `[0:v][scrim]overlay=x=0:y=0[clipped]`,
+      // publisher WebM overlay (alpha composited)
       `[1:v]format=rgba[pub]`,
       `[clipped][pub]overlay=x=0:y=0:shortest=1[base]`,
-      `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
-      `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
+      // iPhone UI — eof_action=repeat keeps static PNG locked for full duration
+      `[2:v]scale=${W}:${IPHONE_UI_H},pad=${W}:${H}:0:0:color=black@0[ui]`,
+      `[base][ui]overlay=x=0:y=0:eof_action=repeat[out]`,
     ].join(';'),
     '-map', '[out]',
     '-t', TOTAL_SEC.toFixed(3),
@@ -229,8 +209,7 @@ export async function runCompositor({
   onProgress(100, 'Done');
 }
 
-// ── Legacy compositor — used for uploaded publishers without a pre-built WebM ──
-// Identical to v15 — builds publisher overlay frames with Sharp.
+// ── Legacy compositor — Sharp frame-by-frame, for uploaded publishers ────────
 async function runCompositorLegacy({
   clipPath, publisherTopPath, publisherBottomPath,
   adBarTopPath, adBarBottomPath, iphoneUiPath,
@@ -330,7 +309,6 @@ async function runCompositorLegacy({
   await sharp(iphoneUiPath).resize(W, IPHONE_UI_H, { fit:'fill' }).toFile(iphoneScaled);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  // Clip track (same as fast path)
   const clipTrimStart = trimStart ?? 0;
   const clipTrimEnd   = trimEnd ?? await probeDur(clipPath);
   const clipDur       = clipTrimEnd - clipTrimStart;
@@ -350,16 +328,20 @@ async function runCompositorLegacy({
       sourceClip = croppedClip;
     }
   }
+
   const firstFrame = path.join(tmpDir, 'first-frame.png');
   await run(FFMPEG, ['-y','-ss',clipTrimStart.toFixed(3),'-i',sourceClip,'-vframes','1',firstFrame]);
+
   const freezeStart = path.join(tmpDir, 'freeze-start.mp4');
   await run(FFMPEG, ['-y','-loop','1','-framerate',String(FPS_L),'-i',firstFrame,
     '-vf',`scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
-    '-t',CLIP_PLAY_START_L.toFixed(3),'-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),freezeStart]);
+    '-t',CLIP_PLAY_START_L.toFixed(3),'-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),'-threads','1',freezeStart]);
+
   const clipScaled = path.join(tmpDir, 'clip-scaled.mp4');
   await run(FFMPEG, ['-y','-ss',clipTrimStart.toFixed(3),'-t',clipDur.toFixed(3),'-i',sourceClip,
     '-vf',`scale=${W}:${CLIP_H}:force_original_aspect_ratio=disable,setsar=1,pad=${W}:${H}:0:${CLIP_TOP}:color=black@1`,
-    '-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),clipScaled]);
+    '-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),'-threads','1',clipScaled]);
+
   const concatParts = [freezeStart, clipScaled];
   const clipNeededSec = TOTAL_SEC_L - CLIP_PLAY_START_L;
   if (clipDur < clipNeededSec) {
@@ -367,13 +349,17 @@ async function runCompositorLegacy({
     await run(FFMPEG, ['-y','-sseof','-0.1','-i',clipScaled,'-vframes','1',lastFrame]);
     const freezeEnd = path.join(tmpDir, 'freeze-end.mp4');
     await run(FFMPEG, ['-y','-loop','1','-framerate',String(FPS_L),'-i',lastFrame,
-      '-vf',`scale=${W}:${H}`,'-t',(clipNeededSec-clipDur).toFixed(3),'-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),freezeEnd]);
+      '-vf',`scale=${W}:${H}:force_original_aspect_ratio=disable,setsar=1`,
+      '-t',(clipNeededSec-clipDur).toFixed(3),'-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),'-threads','1',freezeEnd]);
     concatParts.push(freezeEnd);
   }
+
   const concatList = path.join(tmpDir, 'clip-concat.txt');
   fs.writeFileSync(concatList, concatParts.map(f=>`file '${f}'`).join('\n'));
+
   const fullTrack = path.join(tmpDir, 'full-track.mp4');
-  await run(FFMPEG, ['-y','-f','concat','-safe','0','-i',concatList,'-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),'-t',TOTAL_SEC_L.toFixed(3),fullTrack]);
+  await run(FFMPEG, ['-y','-f','concat','-safe','0','-i',concatList,
+    '-c:v','libx264','-pix_fmt','yuv420p','-r',String(FPS_L),'-t',TOTAL_SEC_L.toFixed(3),fullTrack]);
 
   onProgress(69, 'Encoding…');
 
@@ -381,18 +367,18 @@ async function runCompositorLegacy({
     '-y',
     '-i', fullTrack,
     '-framerate', String(FPS_L), '-r', String(FPS_L), '-f', 'image2', '-i', path.join(seqDir, 'f%05d.png'),
-    '-loop', '1', '-i', iphoneScaled,
+    '-loop', '1', '-framerate', String(FPS_L), '-i', iphoneScaled,
     '-filter_complex', [
-      `color=black:size=${W}x${H}:rate=${FPS_L}[blacksrc]`,
+      `color=black:size=${W}x${H}:rate=${FPS_L}:duration=${TOTAL_SEC_L}[blacksrc]`,
       `[blacksrc]format=rgba,fade=t=out:st=${T_SCRIM_PEAK_L}:d=${T_SCRIM_END_L-T_SCRIM_PEAK_L}:alpha=1,colorchannelmixer=aa=0.70[scrim]`,
       `[1:v]format=rgba[pub]`,
-      `[0:v][scrim]overlay=x=0:y=0:shortest=1[clipped]`,
+      `[0:v][scrim]overlay=x=0:y=0[clipped]`,
       `[clipped][pub]overlay=x=0:y=0:shortest=1[base]`,
-      `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
-      `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
+      `[2:v]scale=${W}:${IPHONE_UI_H},pad=${W}:${H}:0:0:color=black@0[ui]`,
+      `[base][ui]overlay=x=0:y=0:eof_action=repeat[out]`,
     ].join(';'),
     '-map', '[out]', '-t', TOTAL_SEC_L.toFixed(3), '-r', String(FPS_L),
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'ultrafast', '-movflags', '+faststart',
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '20', '-preset', 'ultrafast', '-threads', '1', '-movflags', '+faststart',
     outPath,
   ]);
 
