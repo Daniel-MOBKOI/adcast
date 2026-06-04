@@ -17,64 +17,101 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 
-// In-memory job store (sufficient for a small team tool)
+// ── In-memory job store ────────────────────────────────────────────────────
 const jobs = new Map();
+
+// ── Concurrency queue — max 1 compositor job at a time ────────────────────
+// Prevents simultaneous exports from exhausting the 2GB memory limit.
+// Jobs are processed FIFO; queued jobs show status 'queued' until a slot opens.
+let activeJobs = 0;
+const MAX_CONCURRENT = 1;
+const pendingQueue = []; // { fn: async function }[]
+
+function enqueueJob(fn) {
+  if (activeJobs < MAX_CONCURRENT) {
+    runJob(fn);
+  } else {
+    pendingQueue.push({ fn });
+  }
+}
+
+async function runJob(fn) {
+  activeJobs++;
+  try {
+    await fn();
+  } finally {
+    activeJobs--;
+    if (pendingQueue.length > 0) {
+      const next = pendingQueue.shift();
+      runJob(next.fn);
+    }
+  }
+}
 
 const router = express.Router();
 
-// POST /api/jobs  — multipart: clip (webm), publisherId, publisherLabel
+// POST /api/jobs
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
   const { publisherId, publisherLabel, trimStart, trimEnd } = req.body;
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
-  // Resolve publisher to top + bottom image paths server-side
   const publisherPaths = resolvePublisherPaths(publisherId);
   if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
-  const jobId = uuid();
+  const jobId   = uuid();
   const outPath = path.join(JOBS_DIR, jobId + '.mp4');
+  const queuePos = pendingQueue.length; // position before this job is added
 
-  jobs.set(jobId, { status: 'queued', progress: 0, outPath, error: null });
+  jobs.set(jobId, {
+    status:   activeJobs < MAX_CONCURRENT ? 'queued' : 'waiting',
+    progress: 0,
+    message:  activeJobs < MAX_CONCURRENT ? 'Starting…' : `Queued — ${queuePos + 1} job${queuePos > 0 ? 's' : ''} ahead`,
+    outPath,
+    error: null,
+  });
   res.json({ jobId });
 
-  // Run compositor in background
-  // Static assets — served from server/publishers/assets/
-  const assetsDir = path.join(__dirname, '..', '..', 'publishers', 'assets');
+  const assetsDir       = path.join(__dirname, '..', '..', 'publishers', 'assets');
   const adBarTopPath    = path.join(assetsDir, 'ad-bar-top.jpg');
   const adBarBottomPath = path.join(assetsDir, 'ad-bar-bottom.jpg');
   const iphoneUiPath    = path.join(assetsDir, 'iphone-ui.png');
 
-  runCompositor({
-    clipPath:            req.file.path,
-    publisherTopPath:    publisherPaths.top,
-    publisherBottomPath: publisherPaths.bottom,
-    adBarTopPath,
-    adBarBottomPath,
-    iphoneUiPath,
-    outPath,
-    trimStart: trimStart ? parseFloat(trimStart) : 0,
-    trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
-    onProgress: (pct, msg) => {
-      const job = jobs.get(jobId);
-      if (job) { job.progress = pct; job.message = msg; }
-    }
-  })
+  enqueueJob(async () => {
+    const job = jobs.get(jobId);
+    if (job) { job.status = 'processing'; job.message = 'Building your scene…'; }
+
+    await runCompositor({
+      clipPath:            req.file.path,
+      publisherTopPath:    publisherPaths.top,
+      publisherBottomPath: publisherPaths.bottom,
+      adBarTopPath,
+      adBarBottomPath,
+      iphoneUiPath,
+      outPath,
+      trimStart: trimStart ? parseFloat(trimStart) : 0,
+      trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
+      onProgress: (pct, msg) => {
+        const j = jobs.get(jobId);
+        if (j) { j.progress = pct; j.message = msg; }
+      }
+    })
     .then(() => {
-      const job = jobs.get(jobId);
-      if (job) { job.status = 'done'; job.progress = 100; }
+      const j = jobs.get(jobId);
+      if (j) { j.status = 'done'; j.progress = 100; }
       fs.rmSync(req.file.path, { force: true });
     })
     .catch(err => {
       console.error('Compositor error:', err);
-      const job = jobs.get(jobId);
-      if (job) { job.status = 'error'; job.error = err.message; }
+      const j = jobs.get(jobId);
+      if (j) { j.status = 'error'; j.error = err.message; }
       fs.rmSync(req.file.path, { force: true });
     });
+  });
 });
 
-// GET /api/jobs/:id — poll status
+// GET /api/jobs/:id
 router.get('/:id', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -87,7 +124,7 @@ router.get('/:id', (req, res) => {
   });
 });
 
-// GET /api/jobs/:id/download — stream the finished MP4
+// GET /api/jobs/:id/download
 router.get('/:id/download', (req, res) => {
   const job = jobs.get(req.params.id);
   if (!job || job.status !== 'done') return res.status(404).json({ error: 'Not ready' });
