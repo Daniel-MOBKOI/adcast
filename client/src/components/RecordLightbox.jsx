@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './RecordLightbox.module.css';
 
@@ -56,54 +56,6 @@ export default function RecordLightbox({
   const isStreamReady = recorderState === 'streamReady';
   const isDone        = recorderState === 'done';
 
-  // ── Fake cursor ─────────────────────────────────────────────────────────────
-  const [cursor, setCursor]       = useState({ x: -100, y: -100, pressed: false });
-  const interceptRef              = useRef(null); // transparent div over iframe
-  const pressTimeoutRef           = useRef(null);
-
-  useEffect(() => {
-    document.documentElement.style.cursor = 'none';
-
-    const onMove  = e => setCursor(c => ({ ...c, x: e.clientX, y: e.clientY }));
-    const onDown  = () => setCursor(c => ({ ...c, pressed: true }));
-    const onUp    = () => setCursor(c => ({ ...c, pressed: false }));
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('mouseup',   onUp);
-
-    return () => {
-      document.documentElement.style.cursor = '';
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('mouseup',   onUp);
-    };
-  }, []);
-
-  // Intercept layer handlers — sits over iframe, captures mouse position,
-  // briefly steps aside on click so the event reaches the iframe beneath.
-  const onInterceptMove = useCallback(e => {
-    setCursor(c => ({ ...c, x: e.clientX, y: e.clientY }));
-  }, []);
-
-  const onInterceptDown = useCallback(e => {
-    setCursor(c => ({ ...c, pressed: true }));
-    const el = interceptRef.current;
-    if (!el) return;
-    // Let the click fall through to the iframe for this instant
-    el.style.pointerEvents = 'none';
-    clearTimeout(pressTimeoutRef.current);
-    pressTimeoutRef.current = setTimeout(() => {
-      if (el) el.style.pointerEvents = 'all';
-    }, 80); // restore after click registers
-  }, []);
-
-  const onInterceptUp = useCallback(() => {
-    setCursor(c => ({ ...c, pressed: false }));
-    const el = interceptRef.current;
-    if (el) el.style.pointerEvents = 'all';
-  }, []);
-
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape' && !isRecording) onClose(); };
     window.addEventListener('keydown', handler);
@@ -115,88 +67,66 @@ export default function RecordLightbox({
   }, [isDone, onClose]);
 
   return createPortal(
-    <>
-      {/* Fake touch cursor — fixed, always on top, never blocks events */}
-      <div
-        className={styles.fakeCursor}
-        style={{
-          left: cursor.x,
-          top:  cursor.y,
-          transform: `translate(-50%, -50%) scale(${cursor.pressed ? 0.6 : 1})`,
-        }}
-      />
+    <div className={styles.overlay}>
+      <div className={styles.inner}>
 
-      <div className={styles.overlay}>
-        <div className={styles.inner}>
-
-          <div className={styles.header}>
-            <div className={styles.headerLeft}>
-              {isRecording && (
-                <div className={styles.recPill}>
-                  <span className={styles.recDot} />
-                  {fmtTime(duration)}
-                </div>
-              )}
-              {!isRecording && (
-                <span className={styles.headerLabel}>
-                  {isRequesting   ? 'Waiting for permission…'
-                  : isStreamReady ? 'Ad loaded — interact freely, then hit record'
-                  :                 'Interact with the ad, then hit record'}
-                </span>
-              )}
-            </div>
-            <button
-              className={styles.closeBtn}
-              onClick={onClose}
-              disabled={isRecording}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* frameWrap — iframe + transparent intercept layer on top */}
-          <div className={styles.frameWrap}>
-            <iframe
-              ref={iframeRef}
-              src={iframeUrl}
-              className={styles.frame}
-              allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
-              allowFullScreen
-              title="Celtra ad — record mode"
-              scrolling="no"
-              frameBorder="0"
-            />
-            {/* Transparent overlay — captures mousemove over iframe,
-                steps aside briefly on mousedown so click reaches iframe */}
-            <div
-              ref={interceptRef}
-              className={styles.iframeIntercept}
-              onMouseMove={onInterceptMove}
-              onMouseDown={onInterceptDown}
-              onMouseUp={onInterceptUp}
-            />
-          </div>
-
-          <div className={styles.controls}>
-            {error && <span className={styles.errorMsg}>{error}</span>}
-            <button
-              className={isRecording ? styles.stopBtn : styles.recordBtn}
-              onClick={isRecording ? onStop : onRecord}
-              disabled={isRequesting}
-            >
-              {isRecording ? '■ Stop recording'
-                : isRequesting ? 'Starting…'
-                : '● Start recording'}
-            </button>
+        <div className={styles.header}>
+          <div className={styles.headerLeft}>
+            {isRecording && (
+              <div className={styles.recPill}>
+                <span className={styles.recDot} />
+                {fmtTime(duration)}
+              </div>
+            )}
             {!isRecording && (
-              <p className={styles.hint}>Hit stop when done — clip saves automatically.</p>
+              <span className={styles.headerLabel}>
+                {isRequesting   ? 'Waiting for permission…'
+                : isStreamReady ? 'Ad loaded — interact freely, then hit record'
+                :                 'Interact with the ad, then hit record'}
+              </span>
             )}
           </div>
-
+          <button
+            className={styles.closeBtn}
+            onClick={onClose}
+            disabled={isRecording}
+            aria-label="Close"
+          >
+            ✕
+          </button>
         </div>
+
+        <div className={styles.frameWrap}>
+          <iframe
+            ref={iframeRef}
+            src={iframeUrl}
+            className={styles.frame}
+            allow="camera; microphone; autoplay; fullscreen; accelerometer; gyroscope"
+            allowFullScreen
+            title="Celtra ad — record mode"
+            scrolling="no"
+            frameBorder="0"
+          />
+        </div>
+
+        <div className={styles.controls}>
+          {error && <span className={styles.errorMsg}>{error}</span>}
+          <button
+            className={isRecording ? styles.stopBtn : styles.recordBtn}
+            onClick={isRecording ? onStop : onRecord}
+            disabled={isRequesting}
+          >
+            {isRecording ? '■ Stop recording'
+              : isRequesting ? 'Starting…'
+              : '● Start recording'}
+          </button>
+          {!isRecording && (
+            <p className={styles.hint}>Hit stop when done — clip saves automatically.</p>
+          )}
+        </div>
+
       </div>
-    </>,
+    </div>,
     document.body
   );
 }

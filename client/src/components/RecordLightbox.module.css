@@ -167,27 +167,3 @@
   color: #fca5a5;
   text-align: center;
 }
-
-/* ── Fake touch cursor ── */
-.fakeCursor {
-  position: fixed;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.82);
-  pointer-events: none;
-  z-index: 99999;
-  transition: transform 0.07s ease;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.22);
-  will-change: left, top;
-}
-
-/* Transparent layer over iframe — captures mouse position without blocking clicks */
-.iframeIntercept {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  pointer-events: all;
-  background: transparent;
-  cursor: none;
-}

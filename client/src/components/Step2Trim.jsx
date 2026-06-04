@@ -3,6 +3,7 @@ import styles from './Step2Trim.module.css';
 import layoutStyles from './StepLayout.module.css';
 
 const THUMB_COUNT = 16;
+const GOOD_MIN    = 10; // seconds — minimum allowed trim duration
 const GOOD_MAX    = 30; // seconds — under this = green, over = red
 
 function fmtTime(s) {
@@ -103,8 +104,8 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   const onMouseMove = useCallback((e) => {
     if (!dragging) return;
     const t = pctToTime(getTrackPct(e.clientX));
-    if (dragging === 'start') setTrimStart(Math.min(t, trimEnd - 0.5));
-    else                      setTrimEnd(Math.max(t, trimStart + 0.5));
+    if (dragging === 'start') setTrimStart(Math.min(t, trimEnd - GOOD_MIN));
+    else                      setTrimEnd(Math.max(t, trimStart + GOOD_MIN));
   }, [dragging, trimStart, trimEnd, duration]);
 
   const onMouseUp = useCallback(() => setDragging(null), []);
@@ -127,8 +128,9 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
   }
 
   const trimDuration = trimEnd - trimStart;
-  const isGood       = trimDuration <= GOOD_MAX;
-  const accentColor  = isGood ? '#16a34a' : '#dc2626';
+  const isTooShort   = trimDuration < GOOD_MIN;
+  const isGood       = !isTooShort && trimDuration <= GOOD_MAX;
+  const accentColor  = isGood ? '#16a34a' : '#dc2626'; // red covers both too-short and too-long
 
   const startPct    = getPct(trimStart);
   const endPct      = getPct(trimEnd);
@@ -147,7 +149,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
             {fmtTime(trimDuration)}
           </div>
           <div className={styles.durationBadge} style={{ background: isGood ? '#f0fdf4' : '#fef2f2', color: accentColor, borderColor: isGood ? '#bbf7d0' : '#fecaca' }}>
-            {isGood ? '✓ Good length for export' : '⚠ Trim to under 30s for best results'}
+            {isTooShort ? '⚠ Minimum 10 seconds required' : isGood ? '✓ Good length for export' : '⚠ Trim to under 30s for best results'}
           </div>
         </div>
 
@@ -259,7 +261,7 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
       {/* ── NAV BAR ── */}
       <div className={layoutStyles.navBar}>
         <button className={layoutStyles.btnSecondary} onClick={onBack}>← Back</button>
-        <button className={layoutStyles.btnPrimary} onClick={() => onConfirm(trimStart, trimEnd)}>
+        <button className={layoutStyles.btnPrimary} onClick={() => onConfirm(trimStart, trimEnd)} disabled={isTooShort}>
           Use this clip →
         </button>
       </div>
