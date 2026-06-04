@@ -169,7 +169,7 @@ export default function Step1Record({ onRecordingDone }) {
           duration={duration}
           error={error}
           iframeRef={lightboxIframeRef}
-          onRecord={() => beginRecording()}
+          onRecord={() => beginRecording(lightboxIframeRef)}
           onStop={stop}
           onClose={handleCloseLightbox}
           onMounted={handleMounted}
