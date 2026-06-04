@@ -32,13 +32,14 @@ async function extractThumbs(url, duration, count, cropRect) {
   let sx = 0, sy = 0, sw = vw, sh = vh;
 
   if (cropRect) {
-    // cropRect is in physical screen pixels; video frame is the full captured tab
-    // which matches the physical screen resolution at devicePixelRatio.
-    // Clamp to video bounds.
-    sx = Math.max(0, Math.min(cropRect.x,     vw - 1));
-    sy = Math.max(0, Math.min(cropRect.y,     vh - 1));
-    sw = Math.max(1, Math.min(cropRect.width,  vw - sx));
-    sh = Math.max(1, Math.min(cropRect.height, vh - sy));
+    // cropRect is in CSS pixels; video dimensions may differ (browser captures
+    // at its own resolution). Scale proportionally using window dimensions.
+    const scaleX = vw / window.innerWidth;
+    const scaleY = vh / window.innerHeight;
+    sx = Math.max(0, Math.min(Math.round(cropRect.x      * scaleX), vw - 1));
+    sy = Math.max(0, Math.min(Math.round(cropRect.y      * scaleY), vh - 1));
+    sw = Math.max(1, Math.min(Math.round(cropRect.width  * scaleX), vw - sx));
+    sh = Math.max(1, Math.min(Math.round(cropRect.height * scaleY), vh - sy));
   }
 
   const thumbW = 120;
@@ -97,10 +98,13 @@ export default function Step2Trim({ blob, duration, cropRect, onConfirm, onReRec
 
     let sx = 0, sy = 0, sw = vw, sh = vh;
     if (cropRect) {
-      sx = Math.max(0, Math.min(cropRect.x,     vw - 1));
-      sy = Math.max(0, Math.min(cropRect.y,     vh - 1));
-      sw = Math.max(1, Math.min(cropRect.width,  vw - sx));
-      sh = Math.max(1, Math.min(cropRect.height, vh - sy));
+      // cropRect is in CSS pixels; scale to video dimensions
+      const scaleX = vw / window.innerWidth;
+      const scaleY = vh / window.innerHeight;
+      sx = Math.max(0, Math.min(Math.round(cropRect.x      * scaleX), vw - 1));
+      sy = Math.max(0, Math.min(Math.round(cropRect.y      * scaleY), vh - 1));
+      sw = Math.max(1, Math.min(Math.round(cropRect.width  * scaleX), vw - sx));
+      sh = Math.max(1, Math.min(Math.round(cropRect.height * scaleY), vh - sy));
     }
 
     // Size canvas to match the cropped aspect ratio, filling the container

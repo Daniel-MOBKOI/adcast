@@ -68,14 +68,15 @@ export default function Step1Record({ onRecordingDone }) {
   }
 
   // Called by RecordLightbox after 200ms once the portal has painted.
-  // Converts CSS-pixel rect to physical pixels using devicePixelRatio.
+  // Stored in CSS pixels — Step2Trim scales to video dimensions at draw time.
+  // Do NOT multiply by devicePixelRatio: getDisplayMedia captures at CSS-pixel
+  // resolution regardless of screen DPR, so scaling would overcrop on HiDPI screens.
   function handleMounted(cssRect) {
-    const dpr = window.devicePixelRatio || 1;
     setCropRect({
-      x:      Math.round(cssRect.x      * dpr),
-      y:      Math.round(cssRect.y      * dpr),
-      width:  Math.round(cssRect.width  * dpr),
-      height: Math.round(cssRect.height * dpr),
+      x:      Math.round(cssRect.x),
+      y:      Math.round(cssRect.y),
+      width:  Math.round(cssRect.width),
+      height: Math.round(cssRect.height),
     });
   }
 
