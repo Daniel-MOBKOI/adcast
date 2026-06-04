@@ -60,6 +60,13 @@ router.post('/', upload.single('clip'), async (req, res) => {
   const publisherPaths = resolvePublisherPaths(publisherId);
   if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
+  // Log whether we're using the fast WebM path or the Sharp fallback
+  if (publisherPaths.webm) {
+    console.log('Using pre-built WebM for publisher:', publisherId);
+  } else {
+    console.log('Using Sharp compositor for publisher:', publisherId);
+  }
+
   const jobId   = uuid();
   const outPath = path.join(JOBS_DIR, jobId + '.mp4');
   const queuePos = pendingQueue.length; // position before this job is added
@@ -84,6 +91,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
 
     await runCompositor({
       clipPath:            req.file.path,
+      publisherWebmPath:   publisherPaths.webm,       // fast path — null falls back to Sharp
       publisherTopPath:    publisherPaths.top,
       publisherBottomPath: publisherPaths.bottom,
       adBarTopPath,

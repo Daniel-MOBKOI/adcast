@@ -19,24 +19,21 @@ const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 /**
  * Seeded publisher library.
  *
- * Each entry has:
- *   fileTop    — the article content ABOVE the ad slot
- *   fileBottom — the article content BELOW the ad slot
+ * Built-in publishers can optionally include a pre-rendered VP9+alpha WebM
+ * (fileWebm). When present, the compositor uses it directly instead of
+ * building frames from the top/bottom images — much faster and lower memory.
  *
- * For the Condé Nast Traveler seed:
- *   fileTop    = conde-nast-traveler-1.jpg  (article top, ends with "ADVERTISEMENT" bar)
- *   fileBottom = conde-nast-traveler-2.jpg  (article bottom, starts with "SCROLL TO CONTINUE")
- *
- * The compositor stacks them: [top image] / [ad slot] / [bottom image]
+ * Uploaded publishers don't have a WebM so they fall back to the old
+ * Sharp-based compositor path automatically.
  */
 const BUILTIN = [
   {
-    id: 'cnt-1',
-    label: "Condé Nast Traveler — Las Vegas",
+    id:         'cnt-1',
+    label:      'Condé Nast Traveler — Las Vegas',
     fileTop:    'conde-nast-traveler-1.jpg',
     fileBottom: 'conde-nast-traveler-2.jpg',
-    // Preview thumbnail shown in Step 2 grid (top image)
-    thumb: 'conde-nast-traveler-1.jpg',
+    fileWebm:   'conde-nast-traveler.webm',  // pre-built VP9+alpha scroll animation
+    thumb:      'conde-nast-traveler-1.jpg',
   },
 ];
 
@@ -47,7 +44,7 @@ router.get('/', (_req, res) => {
   const builtin = BUILTIN.map(p => ({
     id:     p.id,
     label:  p.label,
-    url:    `/publishers/${p.thumb}`,   // thumbnail for the picker grid
+    url:    `/publishers/${p.thumb}`,
     source: 'builtin',
   }));
 
@@ -79,26 +76,29 @@ router.post('/upload', upload.single('screenshot'), (req, res) => {
 export default router;
 
 /**
- * resolvePublisherPaths(id) → { top: string, bottom: string } | null
+ * resolvePublisherPaths(id) → { top, bottom, webm } | null
  *
- * Returns absolute disk paths for the top and bottom publisher images.
- * For single-image uploaded publishers, both top and bottom are the same file
- * (the compositor will stack image / ad / image which still looks fine).
+ * webm is present for built-in publishers with a pre-rendered animation.
+ * When webm is present, the compositor skips Sharp frame building entirely.
  */
 export function resolvePublisherPaths(id) {
-  // Built-in two-image publisher
   const builtin = BUILTIN.find(p => p.id === id);
   if (builtin) {
+    const webmPath = builtin.fileWebm
+      ? path.join(BUILTIN_DIR, builtin.fileWebm)
+      : null;
+    // Only use WebM if the file actually exists on disk
+    const webm = webmPath && fs.existsSync(webmPath) ? webmPath : null;
     return {
       top:    path.join(BUILTIN_DIR, builtin.fileTop),
       bottom: path.join(BUILTIN_DIR, builtin.fileBottom),
+      webm,
     };
   }
 
-  // Uploaded single-image publisher — use same image for top and bottom
   const filename = id.startsWith('upload-') ? id.slice('upload-'.length) : null;
   if (!filename) return null;
   const uploadPath = path.join(UPLOAD_DIR, filename);
   if (!fs.existsSync(uploadPath)) return null;
-  return { top: uploadPath, bottom: uploadPath };
+  return { top: uploadPath, bottom: uploadPath, webm: null };
 }
