@@ -86,7 +86,7 @@ export async function runCompositor({
 
   // ── Scale iPhone UI ────────────────────────────────────────────────────────
   const iphoneScaled = path.join(tmpDir, 'iphone-ui.png');
-  await sharp(iphoneUiPath).resize(W, IPHONE_UI_H + 1, { fit: 'fill' }).toFile(iphoneScaled);
+  await sharp(iphoneUiPath).resize(W, IPHONE_UI_H, { fit: 'fill' }).toFile(iphoneScaled);
 
   onProgress(10, 'Preparing clip…');
 
@@ -195,7 +195,7 @@ export async function runCompositor({
       `[0:v][scrim]overlay=x=0:y=0:shortest=1[clipped]`,
       `[1:v]format=rgba[pub]`,
       `[clipped][pub]overlay=x=0:y=0:shortest=1[base]`,
-      `[2:v]scale=${W}:${IPHONE_UI_H + 1}[ui]`,
+      `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
       `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]',
@@ -310,7 +310,7 @@ async function runCompositorLegacy({
   }
 
   const iphoneScaled = path.join(tmpDir, 'iphone-ui.png');
-  await sharp(iphoneUiPath).resize(W, IPHONE_UI_H + 1, { fit:'fill' }).toFile(iphoneScaled);
+  await sharp(iphoneUiPath).resize(W, IPHONE_UI_H, { fit:'fill' }).toFile(iphoneScaled);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
   // Clip track (same as fast path)
@@ -362,7 +362,7 @@ async function runCompositorLegacy({
       `[1:v]format=rgba[pub]`,
       `[0:v][scrim]overlay=x=0:y=0:shortest=1[clipped]`,
       `[clipped][pub]overlay=x=0:y=0:shortest=1[base]`,
-      `[2:v]scale=${W}:${IPHONE_UI_H+1}[ui]`,
+      `[2:v]scale=${W}:${IPHONE_UI_H}[ui]`,
       `[base][ui]overlay=x=0:y=0:shortest=1[out]`,
     ].join(';'),
     '-map', '[out]', '-t', TOTAL_SEC_L.toFixed(3), '-r', String(FPS_L),
