@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './RecordLightbox.module.css';
 
@@ -56,11 +56,12 @@ export default function RecordLightbox({
   const isStreamReady = recorderState === 'streamReady';
   const isDone        = recorderState === 'done';
 
-  // ── Fake cursor — tracks at document level, covers entire page ──────────────
-  const [cursor, setCursor] = useState({ x: -100, y: -100, pressed: false });
+  // ── Fake cursor ─────────────────────────────────────────────────────────────
+  const [cursor, setCursor]       = useState({ x: -100, y: -100, pressed: false });
+  const interceptRef              = useRef(null); // transparent div over iframe
+  const pressTimeoutRef           = useRef(null);
 
   useEffect(() => {
-    // Hide real cursor on entire page while lightbox is open
     document.documentElement.style.cursor = 'none';
 
     const onMove  = e => setCursor(c => ({ ...c, x: e.clientX, y: e.clientY }));
@@ -72,12 +73,35 @@ export default function RecordLightbox({
     document.addEventListener('mouseup',   onUp);
 
     return () => {
-      // Restore real cursor when lightbox closes
       document.documentElement.style.cursor = '';
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('mouseup',   onUp);
     };
+  }, []);
+
+  // Intercept layer handlers — sits over iframe, captures mouse position,
+  // briefly steps aside on click so the event reaches the iframe beneath.
+  const onInterceptMove = useCallback(e => {
+    setCursor(c => ({ ...c, x: e.clientX, y: e.clientY }));
+  }, []);
+
+  const onInterceptDown = useCallback(e => {
+    setCursor(c => ({ ...c, pressed: true }));
+    const el = interceptRef.current;
+    if (!el) return;
+    // Let the click fall through to the iframe for this instant
+    el.style.pointerEvents = 'none';
+    clearTimeout(pressTimeoutRef.current);
+    pressTimeoutRef.current = setTimeout(() => {
+      if (el) el.style.pointerEvents = 'all';
+    }, 80); // restore after click registers
+  }, []);
+
+  const onInterceptUp = useCallback(() => {
+    setCursor(c => ({ ...c, pressed: false }));
+    const el = interceptRef.current;
+    if (el) el.style.pointerEvents = 'all';
   }, []);
 
   useEffect(() => {
@@ -92,7 +116,7 @@ export default function RecordLightbox({
 
   return createPortal(
     <>
-      {/* Fake touch cursor — fixed to viewport, always on top */}
+      {/* Fake touch cursor — fixed, always on top, never blocks events */}
       <div
         className={styles.fakeCursor}
         style={{
@@ -131,6 +155,7 @@ export default function RecordLightbox({
             </button>
           </div>
 
+          {/* frameWrap — iframe + transparent intercept layer on top */}
           <div className={styles.frameWrap}>
             <iframe
               ref={iframeRef}
@@ -141,6 +166,15 @@ export default function RecordLightbox({
               title="Celtra ad — record mode"
               scrolling="no"
               frameBorder="0"
+            />
+            {/* Transparent overlay — captures mousemove over iframe,
+                steps aside briefly on mousedown so click reaches iframe */}
+            <div
+              ref={interceptRef}
+              className={styles.iframeIntercept}
+              onMouseMove={onInterceptMove}
+              onMouseDown={onInterceptDown}
+              onMouseUp={onInterceptUp}
             />
           </div>
 
