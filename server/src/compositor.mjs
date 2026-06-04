@@ -52,8 +52,6 @@ const T_REVEAL      = 4.0;   // second scroll ends — ad fully revealed
 const T_HOLD_END    = 27.0;  // scroll-out begins
 const T_END         = 30.0;
 
-const T_HOLD_END    = 27.0;  // scroll-out begins
-const T_END         = 30.0;
 
 // Clip starts playing when first scroll ends (no point showing frozen frame through publisher)
 const CLIP_PLAY_START = T_REVEAL;                  // 4.0s
