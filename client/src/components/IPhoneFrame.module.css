@@ -1,36 +1,65 @@
-/* Outer container — sized to the frame image at display size */
+/*
+  Pure-CSS iPhone frame.
+  - .screen is the 1080:2184 content area (matches CLIP_H ratio, no distortion)
+  - .frame is a bezel ring drawn OUTWARD via box-shadow spread, so it never
+    changes the screen ratio. pointer-events:none keeps content interactive.
+  - .island is the Dynamic Island pill, also pass-through.
+
+  Sizing mirrors the old Step2 .videoWrap pattern (definite height + aspect-ratio
+  derives width) so it slots into the existing .centre flex column unchanged.
+*/
+
 .outer {
   position: relative;
-  width: 260px;      /* display width — scale as needed */
-  height: 533px;     /* 260 * (1609/785) = 533 */
+  aspect-ratio: 1080 / 2184;
+  height: min(62vh, 560px);
+  max-height: calc(100vh - 280px);
+  width: auto;
+  margin: 6px auto;
   flex-shrink: 0;
+  filter:
+    drop-shadow(0 24px 56px rgba(0, 0, 0, 0.18))
+    drop-shadow(0 4px 12px rgba(0, 0, 0, 0.08));
 }
 
-/* Screen area — positioned to exactly match the transparent screen
-   region of the PNG frame image.
-   Image screen: x=18/785=2.29%, y=15/1609=0.93%, w=752/785=95.8%, h=1582/1609=98.3% */
 .screen {
   position: absolute;
-  left: 2.3%;
-  top: 0.93%;
-  width: 95.8%;
-  height: 98.3%;
+  inset: 0;
+  border-radius: 9% / 4.4%;
   overflow: hidden;
-  border-radius: 28px;   /* circular ~11.4% of screen width — matches the bezel curve at 260px display */
-  background: #fff;
-  z-index: 1;            /* BEHIND the frame: the PNG is a transparent overlay, so the
-                            creative sits behind it and the bezel overlays its edges */
+  background: #0c0c0c;
 }
 
-/* Frame PNG — transparent overlay on top: bezel shows, screen + corners are
-   see-through. pointer-events:none so clicks pass through to the creative. */
+/* opt-in scroll for live previews (Source creative, Publish article) */
+.scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.scroll::-webkit-scrollbar { width: 0; height: 0; }
+
+/* bezel ring: 6px titanium edge sitting just outside the screen */
 .frame {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: fill;
+  border-radius: 9% / 4.4%;
+  box-shadow:
+    0 0 0 6px #0b0b0b,
+    0 0 0 7px #2b2b2b,
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  pointer-events: none;
+}
+
+/* Dynamic Island */
+.island {
+  position: absolute;
+  top: 1.7%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30%;
+  height: 3.4%;
+  background: #000;
+  border-radius: 99px;
   pointer-events: none;
   z-index: 2;
-  user-select: none;
 }

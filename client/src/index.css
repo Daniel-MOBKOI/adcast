@@ -1,13 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap');
+
+:root {
+  /* type */
+  --font-ui:   'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+
+  /* surfaces */
+  --stage:     #f4f3f1;   /* warm off-white preview stage */
+  --panel:     #ffffff;
+  --line:      #ececea;
+  --line-soft: #f1f0ee;
+
+  /* ink */
+  --ink:       #181818;
+  --ink-soft:  #3a3a3a;
+  --grey:      #9b9a97;
+  --grey-lite: #bdbcb8;
+  --label:     #a4a3a0;
+
+  /* accents */
+  --green:     #3a9f57;
+  --green-dot: #39b865;
+  --lav:       #edecf8;
+  --lav-border:#dcdaf3;
+  --lav-text:  #5c5b86;
+  --lav-sel:   #f1f0fc;
+  --lav-sel-bd:#d6d4f4;
+  --accent:    #5b58d6;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #f5f5f5;
-  color: #111;
+  font-family: var(--font-ui);
+  background: var(--stage);
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
 }
 
 button { cursor: pointer; font-family: inherit; }
 input, textarea { font-family: inherit; }
 
-:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
