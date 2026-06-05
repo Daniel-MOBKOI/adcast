@@ -1,12 +1,12 @@
 /**
- * Mobile recording sessions — v2
+ * Mobile recording sessions — v3
  *
- * Changes from v1:
- *  - Mobile page now shows ad in a centred padded box (black surround)
- *  - Page measures the box rect and sends it with the upload as cropRect JSON
- *  - Server uses cropRect to crop precisely (not blind centre-crop)
- *  - iframe pointer-events fixed — done button no longer overlaps ad
- *  - Done button hidden behind a small tap-target that only appears at top of screen
+ * Crop approach: ffmpeg cropdetect scans the video for the largest non-black
+ * region (the ad box). Works automatically on any phone/screen size.
+ * No cropRect, no screenW/screenH, no scale factor maths needed.
+ *
+ * iframe interaction fix: removed touch-action:none from stage/body,
+ * iframe sits directly in the DOM with no overlapping elements during recording.
  */
 
 import express from 'express';
@@ -55,43 +55,61 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 
-// ── Crop using explicit cropRect sent from the mobile page ─────────────────
-// cropRect is in CSS pixels. We scale to video pixels using the ratio
-// of actual video width to device screen width (window.screen.width).
-async function cropWithRect(inputPath, outputPath, cropRect, screenW, screenH) {
-  const { stdout } = await execFileAsync(FFPROBE, [
-    '-v', 'quiet', '-print_format', 'json', '-show_streams', inputPath,
-  ]);
-  const info  = JSON.parse(stdout);
-  const video = info.streams?.find(s => s.codec_type === 'video');
-  if (!video) throw new Error('No video stream in mobile upload');
+// ── Auto-detect crop region using ffmpeg cropdetect ───────────────────────
+// Scans the first 5 seconds of the video to find the largest non-black region.
+// Returns { w, h, x, y } in video pixels.
+async function detectCrop(inputPath) {
+  console.log('[mobile] Running cropdetect…');
 
-  const srcW = parseInt(video.width,  10);
-  const srcH = parseInt(video.height, 10);
-  console.log(`[mobile] Incoming dimensions: ${srcW}×${srcH}, screen: ${screenW}×${screenH}`);
+  // cropdetect params: limit=24 (black threshold), round=2 (even numbers), skip=2 (skip first 2 frames)
+  // We analyse up to 5 seconds only — faster and sufficient for a static black border
+  const { stdout, stderr } = await execFileAsync(FFMPEG, [
+    '-i', inputPath,
+    '-t', '5',
+    '-vf', 'cropdetect=limit=24:round=2:skip=2',
+    '-f', 'null',
+    '-',
+  ], { maxBuffer: 1 << 24 }).catch(e => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
 
-  // Scale factor from CSS pixels → video pixels
-  // Android screen recorder captures at native resolution = screen.width * devicePixelRatio
-  // We don't have DPR directly, but we can derive it from srcW / screenW
-  const scaleX = srcW / screenW;
-  const scaleY = srcH / screenH;
-  console.log(`[mobile] Scale factors: x=${scaleX.toFixed(3)} y=${scaleY.toFixed(3)}`);
+  // cropdetect outputs to stderr: "crop=W:H:X:Y"
+  // Multiple lines — take the last stable value (largest crop area detected)
+  const matches = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
+  if (!matches.length) throw new Error('cropdetect found no crop region');
 
-  const cropX = Math.round(cropRect.x      * scaleX);
-  const cropY = Math.round(cropRect.y      * scaleY);
-  const cropW = Math.round(cropRect.width  * scaleX);
-  const cropH = Math.round(cropRect.height * scaleY);
+  // Pick the most common crop value (stable detection)
+  const counts = {};
+  for (const m of matches) {
+    const key = m[0];
+    counts[key] = (counts[key] || 0) + 1;
+  }
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  const [, w, h, x, y] = best.match(/crop=(\d+):(\d+):(\d+):(\d+)/);
+
+  const result = {
+    w: parseInt(w, 10),
+    h: parseInt(h, 10),
+    x: parseInt(x, 10),
+    y: parseInt(y, 10),
+  };
+
+  console.log(`[mobile] cropdetect result: ${result.w}×${result.h} from (${result.x},${result.y})`);
+  return result;
+}
+
+// ── Crop and scale to target dimensions ───────────────────────────────────
+async function cropAndScale(inputPath, outputPath) {
+  const crop = await detectCrop(inputPath);
 
   // Ensure even numbers for yuv420p
-  const safeCropW = cropW % 2 === 0 ? cropW : cropW - 1;
-  const safeCropH = cropH % 2 === 0 ? cropH : cropH - 1;
+  const cropW = crop.w % 2 === 0 ? crop.w : crop.w - 1;
+  const cropH = crop.h % 2 === 0 ? crop.h : crop.h - 1;
 
-  console.log(`[mobile] Cropping: ${safeCropW}×${safeCropH} from (${cropX},${cropY}), scaling to ${TARGET_W}×${TARGET_H}`);
+  console.log(`[mobile] Cropping ${cropW}×${cropH} from (${crop.x},${crop.y}), scaling to ${TARGET_W}×${TARGET_H}`);
 
   await execFileAsync(FFMPEG, [
     '-y',
     '-i', inputPath,
-    '-vf', `crop=${safeCropW}:${safeCropH}:${cropX}:${cropY},scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=disable,setsar=1`,
+    '-vf', `crop=${cropW}:${cropH}:${crop.x}:${crop.y},scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=disable,setsar=1`,
     '-vsync', 'cfr',
     '-r', '30',
     '-c:v', 'libx264',
@@ -152,11 +170,14 @@ publicRouter.get('/record/:token', (req, res) => {
   const session = sessions.get(req.params.token);
   if (!session) {
     return res.status(404).send(`<!DOCTYPE html><html><head>
-      <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
       <title>AdCast</title></head>
-      <body style="display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
-        font-family:sans-serif;background:#000;color:#fff;">
-        <p style="text-align:center;padding:24px">This link has expired.<br>Please generate a new QR code on desktop.</p>
+      <body style="display:flex;align-items:center;justify-content:center;height:100vh;
+        margin:0;font-family:sans-serif;background:#000;color:#fff;">
+        <p style="text-align:center;padding:24px">
+          This link has expired.<br>Please generate a new QR code on desktop.
+        </p>
       </body></html>`);
   }
 
@@ -170,9 +191,6 @@ publicRouter.get('/record/:token', (req, res) => {
   celtraUrl.searchParams.set('rp._snappingFraction', '0.5');
   celtraUrl.searchParams.set('rp.removeAdvertisementBars', '1');
   celtraUrl.searchParams.set('rp.standalonePreview', '1');
-
-  // Ad aspect ratio: 1080 × 2184 = 0.4945…
-  const AD_RATIO = TARGET_W / TARGET_H; // ~0.4945
 
   res.send(`<!DOCTYPE html>
 <html>
@@ -189,39 +207,37 @@ publicRouter.get('/record/:token', (req, res) => {
     html, body {
       width: 100%;
       height: 100%;
-      background: #000;
+      /* Pure black — cropdetect uses this as the border reference */
+      background: #000000;
       overflow: hidden;
-      /* Prevent any touch scroll interfering */
-      touch-action: none;
     }
 
-    /* Full-screen black stage */
-    #stage {
+    /*
+      Ad box: centred, fixed aspect ratio (1080:2184), with black padding
+      all around so cropdetect can cleanly find the edges on any phone.
+      Padding is generous enough to always clear browser chrome.
+    */
+    #ad-box {
       position: fixed;
-      inset: 0;
+      /* 60px top padding clears address bar on most phones */
+      top: 60px;
+      bottom: 60px;
+      left: 40px;
+      right: 40px;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #000;
     }
 
-    /* Ad box — constrained to correct ratio with black padding all around.
-       Padding ensures browser chrome (address bar / nav bar) is outside the ad box.
-       The box is measured by JS and sent to the server with the upload. */
-    #ad-box {
+    #ad-frame-wrap {
+      /* Maintain exact 1080:2184 ratio */
+      aspect-ratio: 1080 / 2184;
+      height: 100%;
+      max-height: 100%;
+      max-width: 100%;
       position: relative;
-      /* 40px padding each side gives clear black border visible during recording */
-      width: calc(100vw - 80px);
-      /* Height derived from width × (H/W ratio) */
-      aspect-ratio: ${TARGET_W} / ${TARGET_H};
-      /* Cap height so it fits vertically too */
-      max-height: calc(100vh - 120px);
-      max-width: calc((100vh - 120px) * ${AD_RATIO});
-      background: #111;
-      border-radius: 4px;
       overflow: hidden;
-      /* Pointer events must reach the iframe */
-      pointer-events: auto;
+      background: #000000;
     }
 
     #ad-frame {
@@ -231,65 +247,58 @@ publicRouter.get('/record/:token', (req, res) => {
       height: 100%;
       border: none;
       display: block;
+      /* Critical: allow touch events to reach the cross-origin iframe */
       pointer-events: auto;
       touch-action: auto;
     }
 
-    /* Subtle border marker — visible in recording so you can see the crop zone */
-    #ad-box::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border: 2px solid rgba(255,255,255,0.15);
-      border-radius: 4px;
-      pointer-events: none;
-      z-index: 10;
-    }
-
-    /* Corner label — hidden during recording (tiny, top-left of black area) */
-    #corner-label {
-      position: fixed;
-      top: 12px;
-      left: 12px;
-      font-family: -apple-system, sans-serif;
-      font-size: 11px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.4);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      pointer-events: none;
-      z-index: 50;
-    }
-
-    /* Done button — top right corner, small, out of the way during recording */
+    /*
+      Done button — positioned at very top of screen, above the ad box,
+      completely outside the ad area. Does not overlap iframe at all.
+    */
     #done-btn {
       position: fixed;
-      top: 8px;
-      right: 12px;
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.2);
+      top: 10px;
+      right: 16px;
+      z-index: 100;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
       border-radius: 16px;
-      padding: 6px 14px;
+      padding: 5px 14px;
       font-family: -apple-system, sans-serif;
       font-size: 13px;
       font-weight: 500;
-      color: rgba(255,255,255,0.7);
+      color: rgba(255,255,255,0.8);
       cursor: pointer;
-      z-index: 200;
-      /* Does NOT overlap the ad box */
+      /* No pointer-events interference with ad below */
     }
 
-    /* Upload panel — slides up from bottom */
+    /* AdCast label top-left — also above ad box */
+    #corner-label {
+      position: fixed;
+      top: 14px;
+      left: 16px;
+      z-index: 100;
+      font-family: -apple-system, sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+      pointer-events: none;
+    }
+
+    /* Upload panel — slides up from bottom, only shown after Done tap */
     #upload-panel {
       position: fixed;
       bottom: 0; left: 0; right: 0;
-      background: rgba(15,15,15,0.97);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(10,10,10,0.97);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       padding: 28px 24px calc(28px + env(safe-area-inset-bottom));
       transform: translateY(100%);
       transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
-      z-index: 300;
+      z-index: 200;
       border-radius: 20px 20px 0 0;
     }
     #upload-panel.visible { transform: translateY(0); }
@@ -336,8 +345,13 @@ publicRouter.get('/record/:token', (req, res) => {
   </style>
 </head>
 <body>
-  <div id="stage">
-    <div id="ad-box">
+
+  <div id="corner-label">AdCast</div>
+  <button id="done-btn" onclick="openPanel()">Done ↑</button>
+
+  <!-- Ad box sits below done button, no overlap -->
+  <div id="ad-box">
+    <div id="ad-frame-wrap">
       <iframe
         id="ad-frame"
         src="${celtraUrl.toString()}"
@@ -348,15 +362,12 @@ publicRouter.get('/record/:token', (req, res) => {
     </div>
   </div>
 
-  <div id="corner-label">AdCast</div>
-
-  <button id="done-btn" onclick="openPanel()">Done ↑</button>
-
   <div id="upload-panel">
     <h2>Upload your recording</h2>
-    <p>Stop your screen recording and save it to your gallery, then tap below to upload it to AdCast on your desktop.</p>
+    <p>Stop your screen recording, save it to your gallery, then tap below to upload it to AdCast.</p>
     <input type="file" id="file-input" accept="video/*" style="display:none" onchange="handleFile(this)">
-    <button class="btn btn-primary" id="upload-btn" onclick="document.getElementById('file-input').click()">
+    <button class="btn btn-primary" id="upload-btn"
+      onclick="document.getElementById('file-input').click()">
       Choose video from gallery
     </button>
     <button class="btn btn-secondary" onclick="closePanel()">Back to ad</button>
@@ -364,23 +375,7 @@ publicRouter.get('/record/:token', (req, res) => {
   </div>
 
   <script>
-    const TOKEN     = '${token}';
-    const UPLOAD_URL = '/mobile-sessions/upload/' + TOKEN;
-
-    // Measure the ad box rect in CSS pixels and screen dimensions
-    // These are sent with the upload so the server can crop precisely
-    function getAdRect() {
-      const box  = document.getElementById('ad-box');
-      const rect = box.getBoundingClientRect();
-      return {
-        x:       Math.round(rect.left),
-        y:       Math.round(rect.top),
-        width:   Math.round(rect.width),
-        height:  Math.round(rect.height),
-        screenW: window.screen.width,
-        screenH: window.screen.height,
-      };
-    }
+    const UPLOAD_URL = '/mobile-sessions/upload/${token}';
 
     function openPanel()  { document.getElementById('upload-panel').classList.add('visible'); }
     function closePanel() { document.getElementById('upload-panel').classList.remove('visible'); }
@@ -390,9 +385,6 @@ publicRouter.get('/record/:token', (req, res) => {
       const file = input.files[0];
       if (!file) return;
 
-      const adRect = getAdRect();
-      console.log('Ad rect:', JSON.stringify(adRect));
-
       setStatus('Uploading…');
       const btn = document.getElementById('upload-btn');
       btn.disabled = true;
@@ -400,12 +392,6 @@ publicRouter.get('/record/:token', (req, res) => {
 
       const fd = new FormData();
       fd.append('clip', file, file.name);
-      fd.append('cropRect', JSON.stringify({
-        x: adRect.x, y: adRect.y,
-        width: adRect.width, height: adRect.height,
-      }));
-      fd.append('screenW', String(adRect.screenW));
-      fd.append('screenH', String(adRect.screenH));
 
       try {
         const res  = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
@@ -429,7 +415,7 @@ publicRouter.get('/record/:token', (req, res) => {
 </html>`);
 });
 
-// POST /mobile-sessions/upload/:token — mobile device uploads video here (public, no auth)
+// POST /mobile-sessions/upload/:token — mobile uploads video here (public, no auth)
 publicRouter.post('/upload/:token', upload.single('clip'), async (req, res) => {
   const session = sessions.get(req.params.token);
   if (!session) return res.status(404).json({ error: 'Session not found or expired' });
@@ -438,24 +424,10 @@ publicRouter.post('/upload/:token', upload.single('clip'), async (req, res) => {
   session.status = 'uploading';
   console.log(`[mobile] Upload received for token: ${req.params.token}`);
 
-  let cropRect = null;
-  let screenW  = 0;
-  let screenH  = 0;
-
-  try { cropRect = JSON.parse(req.body.cropRect || 'null'); } catch (_) {}
-  try { screenW  = parseInt(req.body.screenW || '0', 10); }  catch (_) {}
-  try { screenH  = parseInt(req.body.screenH || '0', 10); }  catch (_) {}
-
   const croppedPath = path.join(MOBILE_DIR, uuid() + '-cropped.mp4');
 
   try {
-    if (cropRect && screenW > 0 && screenH > 0) {
-      await cropWithRect(req.file.path, croppedPath, cropRect, screenW, screenH);
-    } else {
-      // Fallback: centre-crop if rect wasn't sent
-      console.warn('[mobile] No cropRect received — falling back to centre crop');
-      await centreCrop(req.file.path, croppedPath);
-    }
+    await cropAndScale(req.file.path, croppedPath);
     fs.rmSync(req.file.path, { force: true });
     session.clipPath = croppedPath;
     session.status   = 'ready';
@@ -469,36 +441,3 @@ publicRouter.post('/upload/:token', upload.single('clip'), async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// ── Centre-crop fallback ───────────────────────────────────────────────────
-async function centreCrop(inputPath, outputPath) {
-  const { stdout } = await execFileAsync(FFPROBE, [
-    '-v', 'quiet', '-print_format', 'json', '-show_streams', inputPath,
-  ]);
-  const info  = JSON.parse(stdout);
-  const video = info.streams?.find(s => s.codec_type === 'video');
-  if (!video) throw new Error('No video stream in mobile upload');
-
-  const srcW = parseInt(video.width,  10);
-  const srcH = parseInt(video.height, 10);
-  console.log(`[mobile] Fallback centre-crop. Incoming: ${srcW}×${srcH}`);
-
-  const targetRatio = TARGET_W / TARGET_H;
-  const srcRatio    = srcW / srcH;
-  let cropW, cropH;
-  if (srcRatio > targetRatio) { cropH = srcH; cropW = Math.round(srcH * targetRatio); }
-  else                        { cropW = srcW; cropH = Math.round(srcW / targetRatio); }
-
-  const cropX = Math.round((srcW - cropW) / 2);
-  const cropY = Math.round((srcH - cropH) / 2);
-
-  await execFileAsync(FFMPEG, [
-    '-y', '-i', inputPath,
-    '-vf', `crop=${cropW}:${cropH}:${cropX}:${cropY},scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=disable,setsar=1`,
-    '-vsync', 'cfr', '-r', '30',
-    '-c:v', 'libx264', '-qp', '0', '-preset', 'ultrafast',
-    '-pix_fmt', 'yuv420p', '-threads', '1',
-    outputPath,
-  ]);
-  console.log(`[mobile] Fallback crop done → ${path.basename(outputPath)}`);
-}
