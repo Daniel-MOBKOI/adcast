@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import multer from 'multer';
 import { v4 as uuid } from 'uuid';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 const BUILTIN_DIR = path.join(__dirname, '..', '..', 'publishers');
 const UPLOAD_DIR  = path.join(__dirname, '..', '..', 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -20,11 +20,11 @@ const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
  * Seeded publisher library.
  *
  * Built-in publishers can optionally include a pre-rendered VP9+alpha WebM
- * (fileWebm). When present, the compositor uses it directly instead of
- * building frames from the top/bottom images — much faster and lower memory.
+ * (fileWebm). On server startup, index.mjs pre-converts each WebM to a
+ * side-by-side H.264 (fileWebm → same name with -sbs.mp4 suffix).
+ * The compositor prefers the H.264 for speed; falls back to WebM if not ready.
  *
- * Uploaded publishers don't have a WebM so they fall back to the old
- * Sharp-based compositor path automatically.
+ * Uploaded publishers have no WebM so they fall back to the Sharp legacy path.
  */
 const BUILTIN = [
   {
@@ -32,7 +32,7 @@ const BUILTIN = [
     label:      'Condé Nast Traveler — Las Vegas',
     fileTop:    'conde-nast-traveler-1.jpg',
     fileBottom: 'conde-nast-traveler-2.jpg',
-    fileWebm:   'conde-nast-traveler.webm',  // pre-built VP9+alpha scroll animation
+    fileWebm:   'conde-nast-traveler.webm',
     thumb:      'conde-nast-traveler-1.jpg',
   },
 ];
@@ -76,10 +76,11 @@ router.post('/upload', upload.single('screenshot'), (req, res) => {
 export default router;
 
 /**
- * resolvePublisherPaths(id) → { top, bottom, webm } | null
+ * resolvePublisherPaths(id) → { top, bottom, webm, h264 } | null
  *
- * webm is present for built-in publishers with a pre-rendered animation.
- * When webm is present, the compositor skips Sharp frame building entirely.
+ * h264: path to pre-converted side-by-side H.264 (preferred, fast)
+ * webm: path to VP9+alpha WebM (fallback if H.264 not ready yet)
+ * Both may be null for uploaded publishers (legacy Sharp path used).
  */
 export function resolvePublisherPaths(id) {
   const builtin = BUILTIN.find(p => p.id === id);
@@ -87,12 +88,15 @@ export function resolvePublisherPaths(id) {
     const webmPath = builtin.fileWebm
       ? path.join(BUILTIN_DIR, builtin.fileWebm)
       : null;
-    // Only use WebM if the file actually exists on disk
-    const webm = webmPath && fs.existsSync(webmPath) ? webmPath : null;
+    const h264Path = webmPath
+      ? webmPath.replace('.webm', '-sbs.mp4')
+      : null;
+
     return {
       top:    path.join(BUILTIN_DIR, builtin.fileTop),
       bottom: path.join(BUILTIN_DIR, builtin.fileBottom),
-      webm,
+      webm:   webmPath && fs.existsSync(webmPath) ? webmPath : null,
+      h264:   h264Path && fs.existsSync(h264Path) ? h264Path : null,
     };
   }
 
@@ -100,5 +104,5 @@ export function resolvePublisherPaths(id) {
   if (!filename) return null;
   const uploadPath = path.join(UPLOAD_DIR, filename);
   if (!fs.existsSync(uploadPath)) return null;
-  return { top: uploadPath, bottom: uploadPath, webm: null };
+  return { top: uploadPath, bottom: uploadPath, webm: null, h264: null };
 }

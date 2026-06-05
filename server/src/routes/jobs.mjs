@@ -52,14 +52,16 @@ const router = express.Router();
 router.post('/', upload.single('clip'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No clip uploaded' });
 
-  const { publisherId, publisherLabel, trimStart, trimEnd } = req.body;
+  const { publisherId, publisherLabel, trimStart, trimEnd, cropRect } = req.body;
   if (!publisherId) return res.status(400).json({ error: 'publisherId required' });
 
   const publisherPaths = resolvePublisherPaths(publisherId);
   if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
-  if (publisherPaths.webm) {
-    console.log('Using pre-built WebM for publisher:', publisherId);
+  if (publisherPaths.h264) {
+    console.log('Using pre-converted H.264 for publisher:', publisherId);
+  } else if (publisherPaths.webm) {
+    console.log('Using VP9 WebM for publisher:', publisherId, '(H.264 not ready yet)');
   } else {
     console.log('Using Sharp compositor for publisher:', publisherId);
   }
@@ -82,12 +84,18 @@ router.post('/', upload.single('clip'), async (req, res) => {
   const adBarBottomPath = path.join(assetsDir, 'ad-bar-bottom.jpg');
   const iphoneUiPath    = path.join(assetsDir, 'iphone-ui.png');
 
+  let parsedCropRect = null;
+  if (cropRect) {
+    try { parsedCropRect = JSON.parse(cropRect); } catch (_) {}
+  }
+
   enqueueJob(async () => {
     const job = jobs.get(jobId);
     if (job) { job.status = 'processing'; job.message = 'Building your scene…'; }
 
     await runCompositor({
       clipPath:            req.file.path,
+      publisherH264Path:   publisherPaths.h264,
       publisherWebmPath:   publisherPaths.webm,
       publisherTopPath:    publisherPaths.top,
       publisherBottomPath: publisherPaths.bottom,
@@ -95,8 +103,9 @@ router.post('/', upload.single('clip'), async (req, res) => {
       adBarBottomPath,
       iphoneUiPath,
       outPath,
-      trimStart: trimStart ? parseFloat(trimStart) : 0,
-      trimEnd:   trimEnd   ? parseFloat(trimEnd)   : null,
+      trimStart:  trimStart  ? parseFloat(trimStart) : 0,
+      trimEnd:    trimEnd    ? parseFloat(trimEnd)   : null,
+      cropRect:   parsedCropRect,
       onProgress: (pct, msg) => {
         const j = jobs.get(jobId);
         if (j) { j.progress = pct; j.message = msg; }
