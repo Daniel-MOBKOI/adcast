@@ -8,9 +8,13 @@ import multer from 'multer';
 import { v4 as uuid } from 'uuid';
 import { runCompositor } from '../compositor.mjs';
 import { resolvePublisherPaths } from './publishers.mjs';
+import ffmpegStatic  from 'ffmpeg-static';
 import ffprobeStatic from 'ffprobe-static';
 
 const execFileAsync = promisify(execFile);
+
+const FFMPEG  = ffmpegStatic  || 'ffmpeg';
+const FFPROBE = (ffprobeStatic && ffprobeStatic.path) || 'ffprobe';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const JOBS_DIR = path.join(__dirname, '..', '..', 'jobs');
@@ -23,9 +27,9 @@ const storage = multer.diskStorage({
 const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 
 // ── ffprobe inspection ─────────────────────────────────────────────────────
-async function inspectClip(filePath) {
+async function inspectClip(filePath, label = '') {
   try {
-    const { stdout } = await execFileAsync(ffprobeStatic.path, [
+    const { stdout } = await execFileAsync(FFPROBE, [
       '-v', 'quiet',
       '-print_format', 'json',
       '-show_streams',
@@ -43,15 +47,15 @@ async function inspectClip(filePath) {
       return;
     }
 
-    const duration    = parseFloat(fmt?.duration  ?? video.duration ?? 0);
-    const nbFrames    = parseInt(video.nb_read_frames ?? video.nb_frames ?? 0, 10);
-    const avgFps      = video.avg_frame_rate;   // e.g. "30/1" or "2997/100"
-    const realFps     = video.r_frame_rate;     // codec-level FPS
-    const isVfr       = video.avg_frame_rate !== video.r_frame_rate;
-    const actualFps   = nbFrames > 0 && duration > 0 ? (nbFrames / duration).toFixed(2) : 'unknown';
+    const duration  = parseFloat(fmt?.duration ?? video.duration ?? 0);
+    const nbFrames  = parseInt(video.nb_read_frames ?? video.nb_frames ?? 0, 10);
+    const avgFps    = video.avg_frame_rate;
+    const realFps   = video.r_frame_rate;
+    const isVfr     = video.avg_frame_rate !== video.r_frame_rate;
+    const actualFps = nbFrames > 0 && duration > 0 ? (nbFrames / duration).toFixed(2) : 'unknown';
 
     console.log('─────────────────────────────────────');
-    console.log('[ffprobe] Clip inspection:');
+    console.log(`[ffprobe] Clip inspection${label ? ' — ' + label : ''}:`);
     console.log(`  File:           ${path.basename(filePath)}`);
     console.log(`  Duration:       ${duration.toFixed(2)}s`);
     console.log(`  Frames:         ${nbFrames}`);
@@ -63,6 +67,23 @@ async function inspectClip(filePath) {
   } catch (err) {
     console.error('[ffprobe] Inspection failed:', err.message);
   }
+}
+
+// ── Re-time clip to clean 30fps CFR ───────────────────────────────────────
+async function retimeClip(inputPath, outputPath) {
+  const t0 = Date.now();
+  console.log('[retime] Enforcing 30fps CFR on incoming WebM…');
+  await execFileAsync(FFMPEG, [
+    '-y',
+    '-i', inputPath,
+    '-vf', 'fps=30',
+    '-vsync', 'cfr',
+    '-c:v', 'vp8',        // re-encode to WebM/VP8 so duration header is written correctly
+    '-b:v', '4M',
+    '-threads', '1',
+    outputPath,
+  ]);
+  console.log(`[retime] Done in ${((Date.now() - t0) / 1000).toFixed(1)}s → ${path.basename(outputPath)}`);
 }
 
 // ── In-memory job store ────────────────────────────────────────────────────
@@ -108,8 +129,15 @@ router.post('/', upload.single('clip'), async (req, res) => {
 
   console.log('Compositing with Sharp for publisher:', publisherId);
 
-  // ── Inspect the incoming clip immediately ──────────────────────────────
-  await inspectClip(req.file.path);
+  // ── Inspect raw upload ─────────────────────────────────────────────────
+  await inspectClip(req.file.path, 'RAW upload');
+
+  // ── Re-time to clean 30fps CFR ─────────────────────────────────────────
+  const retimedPath = req.file.path.replace(/(\.\w+)$/, '-retimed.webm');
+  await retimeClip(req.file.path, retimedPath);
+
+  // ── Inspect re-timed clip ──────────────────────────────────────────────
+  await inspectClip(retimedPath, 'After re-timing');
 
   const jobId    = uuid();
   const outPath  = path.join(JOBS_DIR, jobId + '.mp4');
@@ -139,7 +167,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
     if (job) { job.status = 'processing'; job.message = 'Building your scene…'; }
 
     await runCompositor({
-      clipPath:            req.file.path,
+      clipPath:            retimedPath,   // ← compositor receives clean CFR clip
       publisherTopPath:    publisherPaths.top,
       publisherBottomPath: publisherPaths.bottom,
       adBarTopPath,
@@ -158,12 +186,14 @@ router.post('/', upload.single('clip'), async (req, res) => {
       const j = jobs.get(jobId);
       if (j) { j.status = 'done'; j.progress = 100; }
       fs.rmSync(req.file.path, { force: true });
+      fs.rmSync(retimedPath,   { force: true });
     })
     .catch(err => {
       console.error('Compositor error:', err);
       const j = jobs.get(jobId);
       if (j) { j.status = 'error'; j.error = err.message; }
       fs.rmSync(req.file.path, { force: true });
+      fs.rmSync(retimedPath,   { force: true });
     });
   });
 });
