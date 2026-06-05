@@ -70,16 +70,20 @@ async function inspectClip(filePath, label = '') {
 }
 
 // ── Re-time clip to clean 30fps CFR ───────────────────────────────────────
+// Uses lossless libx264 (qp=0) in an MKV container — zero quality loss,
+// faster than VP8 re-encode, and correctly writes the duration header.
 async function retimeClip(inputPath, outputPath) {
   const t0 = Date.now();
-  console.log('[retime] Enforcing 30fps CFR on incoming WebM…');
+  console.log('[retime] Enforcing 30fps CFR on incoming WebM (lossless)…');
   await execFileAsync(FFMPEG, [
     '-y',
     '-i', inputPath,
     '-vf', 'fps=30',
     '-vsync', 'cfr',
-    '-c:v', 'vp8',        // re-encode to WebM/VP8 so duration header is written correctly
-    '-b:v', '4M',
+    '-c:v', 'libx264',
+    '-qp', '0',           // lossless — no quality loss whatsoever
+    '-preset', 'ultrafast',
+    '-pix_fmt', 'yuv420p',
     '-threads', '1',
     outputPath,
   ]);
@@ -133,7 +137,7 @@ router.post('/', upload.single('clip'), async (req, res) => {
   await inspectClip(req.file.path, 'RAW upload');
 
   // ── Re-time to clean 30fps CFR ─────────────────────────────────────────
-  const retimedPath = req.file.path.replace(/(\.\w+)$/, '-retimed.webm');
+  const retimedPath = req.file.path.replace(/(\.\w+)$/, '-retimed.mkv');
   await retimeClip(req.file.path, retimedPath);
 
   // ── Inspect re-timed clip ──────────────────────────────────────────────
