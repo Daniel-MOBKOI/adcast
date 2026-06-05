@@ -58,16 +58,10 @@ router.post('/', upload.single('clip'), async (req, res) => {
   const publisherPaths = resolvePublisherPaths(publisherId);
   if (!publisherPaths) return res.status(400).json({ error: 'Publisher not found: ' + publisherId });
 
-  if (publisherPaths.h264) {
-    console.log('Using pre-converted H.264 for publisher:', publisherId);
-  } else if (publisherPaths.webm) {
-    console.log('Using VP9 WebM for publisher:', publisherId, '(H.264 not ready yet)');
-  } else {
-    console.log('Using Sharp compositor for publisher:', publisherId);
-  }
+  console.log('Compositing with Sharp for publisher:', publisherId);
 
-  const jobId   = uuid();
-  const outPath = path.join(JOBS_DIR, jobId + '.mp4');
+  const jobId    = uuid();
+  const outPath  = path.join(JOBS_DIR, jobId + '.mp4');
   const queuePos = pendingQueue.length;
 
   jobs.set(jobId, {
@@ -95,21 +89,19 @@ router.post('/', upload.single('clip'), async (req, res) => {
 
     await runCompositor({
       clipPath:            req.file.path,
-      publisherH264Path:   publisherPaths.h264,
-      publisherWebmPath:   publisherPaths.webm,
       publisherTopPath:    publisherPaths.top,
       publisherBottomPath: publisherPaths.bottom,
       adBarTopPath,
       adBarBottomPath,
       iphoneUiPath,
       outPath,
-      trimStart:  trimStart  ? parseFloat(trimStart) : 0,
-      trimEnd:    trimEnd    ? parseFloat(trimEnd)   : null,
+      trimStart:  trimStart ? parseFloat(trimStart) : 0,
+      trimEnd:    trimEnd   ? parseFloat(trimEnd)   : null,
       cropRect:   parsedCropRect,
       onProgress: (pct, msg) => {
         const j = jobs.get(jobId);
         if (j) { j.progress = pct; j.message = msg; }
-      }
+      },
     })
     .then(() => {
       const j = jobs.get(jobId);

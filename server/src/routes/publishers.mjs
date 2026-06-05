@@ -18,13 +18,9 @@ const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 /**
  * Seeded publisher library.
- *
- * Built-in publishers can optionally include a pre-rendered VP9+alpha WebM
- * (fileWebm). On server startup, index.mjs pre-converts each WebM to a
- * side-by-side H.264 (fileWebm → same name with -sbs.mp4 suffix).
- * The compositor prefers the H.264 for speed; falls back to WebM if not ready.
- *
- * Uploaded publishers have no WebM so they fall back to the Sharp legacy path.
+ * Each built-in publisher has a top and bottom image used by the Sharp
+ * compositor to build the scroll animation frame by frame.
+ * Uploaded publishers use a single image for both top and bottom.
  */
 const BUILTIN = [
   {
@@ -32,7 +28,6 @@ const BUILTIN = [
     label:      'Condé Nast Traveler — Las Vegas',
     fileTop:    'conde-nast-traveler-1.jpg',
     fileBottom: 'conde-nast-traveler-2.jpg',
-    fileWebm:   'conde-nast-traveler.webm',
     thumb:      'conde-nast-traveler-1.jpg',
   },
 ];
@@ -76,27 +71,14 @@ router.post('/upload', upload.single('screenshot'), (req, res) => {
 export default router;
 
 /**
- * resolvePublisherPaths(id) → { top, bottom, webm, h264 } | null
- *
- * h264: path to pre-converted side-by-side H.264 (preferred, fast)
- * webm: path to VP9+alpha WebM (fallback if H.264 not ready yet)
- * Both may be null for uploaded publishers (legacy Sharp path used).
+ * resolvePublisherPaths(id) → { top, bottom } | null
  */
 export function resolvePublisherPaths(id) {
   const builtin = BUILTIN.find(p => p.id === id);
   if (builtin) {
-    const webmPath = builtin.fileWebm
-      ? path.join(BUILTIN_DIR, builtin.fileWebm)
-      : null;
-    const h264Path = webmPath
-      ? webmPath.replace('.webm', '-sbs.mp4')
-      : null;
-
     return {
       top:    path.join(BUILTIN_DIR, builtin.fileTop),
       bottom: path.join(BUILTIN_DIR, builtin.fileBottom),
-      webm:   webmPath && fs.existsSync(webmPath) ? webmPath : null,
-      h264:   h264Path && fs.existsSync(h264Path) ? h264Path : null,
     };
   }
 
@@ -104,5 +86,5 @@ export function resolvePublisherPaths(id) {
   if (!filename) return null;
   const uploadPath = path.join(UPLOAD_DIR, filename);
   if (!fs.existsSync(uploadPath)) return null;
-  return { top: uploadPath, bottom: uploadPath, webm: null, h264: null };
+  return { top: uploadPath, bottom: uploadPath };
 }
