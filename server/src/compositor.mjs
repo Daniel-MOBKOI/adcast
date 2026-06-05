@@ -180,7 +180,7 @@ export async function runCompositor({
   const ffArgs = [
     '-y',
     '-i', fullTrack,                                    // [0] clip track
-    '-vcodec', 'libvpx-vp9', '-i', publisherWebmPath,  // [1] publisher WebM
+    '-itsoffset', (1/FPS).toFixed(6), '-vcodec', 'libvpx-vp9', '-i', publisherWebmPath,  // [1] publisher WebM (1-frame offset covers frame 0)
     '-loop', '1', '-framerate', String(FPS), '-i', iphoneScaled, // [2] iPhone UI
     '-filter_complex', [
       // Scrim: black, fades 70% → 0% opacity between T_SCRIM_PEAK and T_SCRIM_END
