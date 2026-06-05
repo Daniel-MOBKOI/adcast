@@ -60,3 +60,25 @@ export async function downloadJob(jobId) {
   const res = await apiFetch(`/jobs/${jobId}/download`);
   return res.blob();
 }
+
+// ── Mobile session API ─────────────────────────────────────────────────────
+
+export async function createMobileSession(creativeId) {
+  const res = await apiFetch('/mobile-sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ creativeId }),
+  });
+  return res.json(); // { token }
+}
+
+export async function pollMobileSession(token) {
+  const res = await apiFetch(`/mobile-sessions/${token}/status`);
+  return res.json(); // { status, error }
+}
+
+export async function fetchMobileClip(token) {
+  const res = await apiFetch(`/mobile-sessions/${token}/clip`);
+  if (!res.ok) throw new Error('Failed to fetch mobile clip');
+  return res.blob(); // returns the cropped MP4 as a blob
+}
