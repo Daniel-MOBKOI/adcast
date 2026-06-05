@@ -1,12 +1,13 @@
 /**
- * Mobile recording sessions — v3
+ * Mobile recording sessions — v4
  *
- * Crop approach: ffmpeg cropdetect scans the video for the largest non-black
- * region (the ad box). Works automatically on any phone/screen size.
- * No cropRect, no screenW/screenH, no scale factor maths needed.
+ * Three exported routers:
+ *   apiRouter    → mounted at /api/mobile-sessions  (auth protected)
+ *   recordRouter → mounted at /mobile-record        (public, serves the recording page)
+ *   uploadRouter → mounted at /mobile-upload        (public, receives video upload)
  *
- * iframe interaction fix: removed touch-action:none from stage/body,
- * iframe sits directly in the DOM with no overlapping elements during recording.
+ * Crop approach: ffmpeg cropdetect finds the largest non-black region automatically.
+ * Works on any phone/screen size — no coordinates or scale factor maths needed.
  */
 
 import express from 'express';
@@ -28,14 +29,11 @@ const __dirname  = path.dirname(fileURLToPath(import.meta.url));
 const MOBILE_DIR = path.join(__dirname, '..', '..', 'mobile-sessions');
 fs.mkdirSync(MOBILE_DIR, { recursive: true });
 
-// Target dimensions — must match compositor constants
 const TARGET_W = 1080;
 const TARGET_H = 2184;
-
-// Session TTL — 30 minutes
 const SESSION_TTL_MS = 30 * 60 * 1000;
 
-// ── In-memory session store ────────────────────────────────────────────────
+// ── Session store ──────────────────────────────────────────────────────────
 const sessions = new Map();
 
 setInterval(() => {
@@ -48,35 +46,27 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
-// ── Multer for mobile uploads ──────────────────────────────────────────────
+// ── Multer ─────────────────────────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: MOBILE_DIR,
   filename: (_req, file, cb) => cb(null, uuid() + path.extname(file.originalname || '.mp4')),
 });
 const upload = multer({ storage, limits: { fileSize: 500 * 1024 * 1024 } });
 
-// ── Auto-detect crop region using ffmpeg cropdetect ───────────────────────
-// Scans the first 5 seconds of the video to find the largest non-black region.
-// Returns { w, h, x, y } in video pixels.
+// ── cropdetect + crop + scale ──────────────────────────────────────────────
 async function detectCrop(inputPath) {
   console.log('[mobile] Running cropdetect…');
-
-  // cropdetect params: limit=24 (black threshold), round=2 (even numbers), skip=2 (skip first 2 frames)
-  // We analyse up to 5 seconds only — faster and sufficient for a static black border
-  const { stdout, stderr } = await execFileAsync(FFMPEG, [
+  const { stderr } = await execFileAsync(FFMPEG, [
     '-i', inputPath,
     '-t', '5',
     '-vf', 'cropdetect=limit=24:round=2:skip=2',
-    '-f', 'null',
-    '-',
-  ], { maxBuffer: 1 << 24 }).catch(e => ({ stdout: e.stdout || '', stderr: e.stderr || '' }));
+    '-f', 'null', '-',
+  ], { maxBuffer: 1 << 24 }).catch(e => ({ stderr: e.stderr || '' }));
 
-  // cropdetect outputs to stderr: "crop=W:H:X:Y"
-  // Multiple lines — take the last stable value (largest crop area detected)
   const matches = [...stderr.matchAll(/crop=(\d+):(\d+):(\d+):(\d+)/g)];
-  if (!matches.length) throw new Error('cropdetect found no crop region');
+  if (!matches.length) throw new Error('cropdetect found no crop region — ensure the mobile page has a black background');
 
-  // Pick the most common crop value (stable detection)
+  // Pick the most frequently detected crop value (most stable)
   const counts = {};
   for (const m of matches) {
     const key = m[0];
@@ -84,101 +74,73 @@ async function detectCrop(inputPath) {
   }
   const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
   const [, w, h, x, y] = best.match(/crop=(\d+):(\d+):(\d+):(\d+)/);
-
-  const result = {
-    w: parseInt(w, 10),
-    h: parseInt(h, 10),
-    x: parseInt(x, 10),
-    y: parseInt(y, 10),
-  };
-
-  console.log(`[mobile] cropdetect result: ${result.w}×${result.h} from (${result.x},${result.y})`);
+  const result = { w: parseInt(w, 10), h: parseInt(h, 10), x: parseInt(x, 10), y: parseInt(y, 10) };
+  console.log(`[mobile] cropdetect: ${result.w}×${result.h} from (${result.x},${result.y})`);
   return result;
 }
 
-// ── Crop and scale to target dimensions ───────────────────────────────────
 async function cropAndScale(inputPath, outputPath) {
   const crop = await detectCrop(inputPath);
-
-  // Ensure even numbers for yuv420p
   const cropW = crop.w % 2 === 0 ? crop.w : crop.w - 1;
   const cropH = crop.h % 2 === 0 ? crop.h : crop.h - 1;
-
-  console.log(`[mobile] Cropping ${cropW}×${cropH} from (${crop.x},${crop.y}), scaling to ${TARGET_W}×${TARGET_H}`);
+  console.log(`[mobile] Cropping ${cropW}×${cropH} from (${crop.x},${crop.y}) → ${TARGET_W}×${TARGET_H}`);
 
   await execFileAsync(FFMPEG, [
-    '-y',
-    '-i', inputPath,
+    '-y', '-i', inputPath,
     '-vf', `crop=${cropW}:${cropH}:${crop.x}:${crop.y},scale=${TARGET_W}:${TARGET_H}:force_original_aspect_ratio=disable,setsar=1`,
-    '-vsync', 'cfr',
-    '-r', '30',
-    '-c:v', 'libx264',
-    '-qp', '0',
-    '-preset', 'ultrafast',
-    '-pix_fmt', 'yuv420p',
-    '-threads', '1',
+    '-vsync', 'cfr', '-r', '30',
+    '-c:v', 'libx264', '-qp', '0', '-preset', 'ultrafast',
+    '-pix_fmt', 'yuv420p', '-threads', '1',
     outputPath,
   ]);
-
   console.log(`[mobile] Crop done → ${path.basename(outputPath)}`);
 }
 
-// ── Routers ────────────────────────────────────────────────────────────────
+// ── API router (auth protected) ────────────────────────────────────────────
 export const apiRouter = express.Router();
 
-// POST /api/mobile-sessions
+// POST /api/mobile-sessions — desktop creates a session
 apiRouter.post('/', (req, res) => {
   const { creativeId } = req.body;
   if (!creativeId) return res.status(400).json({ error: 'creativeId required' });
-
   const token = uuid();
-  sessions.set(token, {
-    creativeId,
-    status: 'waiting',
-    clipPath: null,
-    createdAt: Date.now(),
-  });
-
+  sessions.set(token, { creativeId, status: 'waiting', clipPath: null, createdAt: Date.now() });
   console.log(`[mobile] Session created: ${token} for creative: ${creativeId}`);
   res.json({ token });
 });
 
-// GET /api/mobile-sessions/:token/status
+// GET /api/mobile-sessions/:token/status — desktop polls
 apiRouter.get('/:token/status', (req, res) => {
   const session = sessions.get(req.params.token);
   if (!session) return res.status(404).json({ error: 'Session not found or expired' });
   res.json({ status: session.status, error: session.error || null });
 });
 
-// GET /api/mobile-sessions/:token/clip
+// GET /api/mobile-sessions/:token/clip — desktop fetches processed clip
 apiRouter.get('/:token/clip', (req, res) => {
   const session = sessions.get(req.params.token);
   if (!session)                   return res.status(404).json({ error: 'Session not found or expired' });
   if (session.status !== 'ready') return res.status(400).json({ error: 'Clip not ready yet' });
   if (!fs.existsSync(session.clipPath)) return res.status(404).json({ error: 'Clip file missing' });
-
   res.setHeader('Content-Type', 'video/mp4');
   res.setHeader('Content-Disposition', 'attachment; filename="mobile-recording.mp4"');
   fs.createReadStream(session.clipPath).pipe(res);
 });
 
-// ── Public router ──────────────────────────────────────────────────────────
-export const publicRouter = express.Router();
+// ── Record router (public) — GET /mobile-record/:token ────────────────────
+export const recordRouter = express.Router();
 
-// GET /mobile-record/:token — mobile browser opens this page
-publicRouter.get('/record/:token', (req, res) => {
+recordRouter.get('/:token', (req, res) => {
   const session = sessions.get(req.params.token);
   if (!session) {
     return res.status(404).send(`<!DOCTYPE html><html><head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
       <title>AdCast</title></head>
       <body style="display:flex;align-items:center;justify-content:center;height:100vh;
         margin:0;font-family:sans-serif;background:#000;color:#fff;">
         <p style="text-align:center;padding:24px">
           This link has expired.<br>Please generate a new QR code on desktop.
-        </p>
-      </body></html>`);
+        </p></body></html>`);
   }
 
   const { creativeId } = session;
@@ -203,34 +165,51 @@ publicRouter.get('/record/:token', (req, res) => {
   <title>AdCast — Record</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
     html, body {
-      width: 100%;
-      height: 100%;
-      /* Pure black — cropdetect uses this as the border reference */
+      width: 100%; height: 100%;
       background: #000000;
       overflow: hidden;
     }
 
-    /*
-      Ad box: centred, fixed aspect ratio (1080:2184), with black padding
-      all around so cropdetect can cleanly find the edges on any phone.
-      Padding is generous enough to always clear browser chrome.
-    */
+    /* Done button — top right, well above the ad box, never overlaps iframe */
+    #done-btn {
+      position: fixed;
+      top: 10px; right: 16px;
+      z-index: 100;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 16px;
+      padding: 5px 14px;
+      font-family: -apple-system, sans-serif;
+      font-size: 13px; font-weight: 500;
+      color: rgba(255,255,255,0.8);
+      cursor: pointer;
+    }
+
+    #corner-label {
+      position: fixed;
+      top: 14px; left: 16px;
+      z-index: 100;
+      font-family: -apple-system, sans-serif;
+      font-size: 11px; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: rgba(255,255,255,0.3);
+      pointer-events: none;
+    }
+
+    /* Ad box: centred, 1080:2184 ratio, black padding all around.
+       60px top/bottom clears browser chrome on most phones.
+       cropdetect uses the pure black surround to find edges automatically. */
     #ad-box {
       position: fixed;
-      /* 60px top padding clears address bar on most phones */
-      top: 60px;
-      bottom: 60px;
-      left: 40px;
-      right: 40px;
+      top: 60px; bottom: 60px;
+      left: 40px; right: 40px;
       display: flex;
       align-items: center;
       justify-content: center;
     }
 
     #ad-frame-wrap {
-      /* Maintain exact 1080:2184 ratio */
       aspect-ratio: 1080 / 2184;
       height: 100%;
       max-height: 100%;
@@ -243,52 +222,13 @@ publicRouter.get('/record/:token', (req, res) => {
     #ad-frame {
       position: absolute;
       inset: 0;
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-      /* Critical: allow touch events to reach the cross-origin iframe */
+      width: 100%; height: 100%;
+      border: none; display: block;
       pointer-events: auto;
       touch-action: auto;
     }
 
-    /*
-      Done button — positioned at very top of screen, above the ad box,
-      completely outside the ad area. Does not overlap iframe at all.
-    */
-    #done-btn {
-      position: fixed;
-      top: 10px;
-      right: 16px;
-      z-index: 100;
-      background: rgba(255,255,255,0.15);
-      border: 1px solid rgba(255,255,255,0.25);
-      border-radius: 16px;
-      padding: 5px 14px;
-      font-family: -apple-system, sans-serif;
-      font-size: 13px;
-      font-weight: 500;
-      color: rgba(255,255,255,0.8);
-      cursor: pointer;
-      /* No pointer-events interference with ad below */
-    }
-
-    /* AdCast label top-left — also above ad box */
-    #corner-label {
-      position: fixed;
-      top: 14px;
-      left: 16px;
-      z-index: 100;
-      font-family: -apple-system, sans-serif;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.3);
-      pointer-events: none;
-    }
-
-    /* Upload panel — slides up from bottom, only shown after Done tap */
+    /* Upload panel — slides up only after Done is tapped */
     #upload-panel {
       position: fixed;
       bottom: 0; left: 0; right: 0;
@@ -302,54 +242,35 @@ publicRouter.get('/record/:token', (req, res) => {
       border-radius: 20px 20px 0 0;
     }
     #upload-panel.visible { transform: translateY(0); }
-
     #upload-panel h2 {
-      color: #fff;
-      font-family: -apple-system, sans-serif;
-      font-size: 18px;
-      font-weight: 700;
-      margin-bottom: 6px;
+      color: #fff; font-family: -apple-system, sans-serif;
+      font-size: 18px; font-weight: 700; margin-bottom: 6px;
     }
     #upload-panel p {
-      color: rgba(255,255,255,0.5);
-      font-family: -apple-system, sans-serif;
-      font-size: 13px;
-      line-height: 1.5;
-      margin-bottom: 20px;
+      color: rgba(255,255,255,0.5); font-family: -apple-system, sans-serif;
+      font-size: 13px; line-height: 1.5; margin-bottom: 20px;
     }
-
     .btn {
-      display: block;
-      width: 100%;
-      padding: 15px;
-      border-radius: 12px;
-      border: none;
+      display: block; width: 100%; padding: 15px;
+      border-radius: 12px; border: none;
       font-family: -apple-system, sans-serif;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-bottom: 10px;
+      font-size: 16px; font-weight: 600;
+      cursor: pointer; margin-bottom: 10px;
     }
     .btn-primary  { background: #fff; color: #000; }
     .btn-primary:disabled { opacity: 0.5; }
     .btn-secondary { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
-
     #status {
-      font-family: -apple-system, sans-serif;
-      font-size: 13px;
-      color: rgba(255,255,255,0.5);
-      text-align: center;
-      margin-top: 6px;
-      min-height: 18px;
+      font-family: -apple-system, sans-serif; font-size: 13px;
+      color: rgba(255,255,255,0.5); text-align: center;
+      margin-top: 6px; min-height: 18px;
     }
   </style>
 </head>
 <body>
-
   <div id="corner-label">AdCast</div>
   <button id="done-btn" onclick="openPanel()">Done ↑</button>
 
-  <!-- Ad box sits below done button, no overlap -->
   <div id="ad-box">
     <div id="ad-frame-wrap">
       <iframe
@@ -375,7 +296,7 @@ publicRouter.get('/record/:token', (req, res) => {
   </div>
 
   <script>
-    const UPLOAD_URL = '/mobile-sessions/upload/${token}';
+    const UPLOAD_URL = '/mobile-upload/${token}';
 
     function openPanel()  { document.getElementById('upload-panel').classList.add('visible'); }
     function closePanel() { document.getElementById('upload-panel').classList.remove('visible'); }
@@ -415,8 +336,10 @@ publicRouter.get('/record/:token', (req, res) => {
 </html>`);
 });
 
-// POST /mobile-sessions/upload/:token — mobile uploads video here (public, no auth)
-publicRouter.post('/upload/:token', upload.single('clip'), async (req, res) => {
+// ── Upload router (public) — POST /mobile-upload/:token ───────────────────
+export const uploadRouter = express.Router();
+
+uploadRouter.post('/:token', upload.single('clip'), async (req, res) => {
   const session = sessions.get(req.params.token);
   if (!session) return res.status(404).json({ error: 'Session not found or expired' });
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });

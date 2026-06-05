@@ -45,7 +45,7 @@ function QRModal({ token, onClipReady, onClose }) {
   const [mobileError, setMobileError] = useState(null);
   const pollRef = useRef(null);
 
-  const recordUrl = `${window.location.origin}/mobile-record/record/${token}`;
+  const recordUrl = `${window.location.origin}/mobile-record/${token}`;
 
   // Generate QR code using the qrcode library via CDN (loaded dynamically)
   useEffect(() => {
@@ -114,16 +114,18 @@ function QRModal({ token, onClipReady, onClose }) {
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 1000,
-      background: 'rgba(0,0,0,0.7)',
+      background: 'rgba(0,0,0,0.75)',
+      padding: 24,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
     }}>
       <div style={{
         background: '#fff', borderRadius: 16, padding: 40,
-        maxWidth: 420, width: '90%', textAlign: 'center',
+        maxWidth: 480, width: '100%', textAlign: 'center',
         boxShadow: '0 24px 80px rgba(0,0,0,0.3)',
+        maxHeight: 'calc(100vh - 48px)', overflowY: 'auto',
       }}>
         <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8, color: '#111' }}>
-          Record on your iPhone
+          Record on mobile
         </h2>
 
         {mobileStatus === 'waiting' || mobileStatus === 'uploading' ? (
