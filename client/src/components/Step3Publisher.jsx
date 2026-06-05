@@ -3,6 +3,12 @@ import { getPublishers, uploadPublisher } from '../api.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
 import styles from './StepLayout.module.css';
 
+function initials(label) {
+  const words = label.trim().split(/\s+/);
+  if (words.length === 1) return label.slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
 export default function Step2Publisher({ publisher, onPublisher, onBack, onNext, onNav }) {
   const [publishers, setPublishers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,24 +60,20 @@ export default function Step2Publisher({ publisher, onPublisher, onBack, onNext,
           {publishers.map(p => (
             <div
               key={p.id}
-              className={`${styles.pubTile} ${publisher?.id === p.id ? styles.pubTileSelected : ''}`}
+              className={`${styles.pubRow} ${publisher?.id === p.id ? styles.pubRowSelected : ''}`}
               onClick={() => onPublisher(p)}
             >
-              <div className={styles.pubTileImg}>
-                <img src={p.url} alt={p.label} />
-              </div>
-              <div className={styles.pubTileLbl}>{p.label}</div>
-              {publisher?.id === p.id && <div className={styles.pubTileCheck}>✓</div>}
+              <span className={styles.pubAvatar}>{initials(p.label)}</span>
+              <span className={styles.pubName}>{p.label}</span>
+              {publisher?.id === p.id && <span className={styles.pubCheck}>✓</span>}
             </div>
           ))}
-          <label className={`${styles.pubTile} ${styles.pubTileUpload}`}>
+          <label className={styles.pubRowUpload}>
             <input type="file" accept="image/*" onChange={handleUpload} style={{ display: 'none' }} />
-            <div className={styles.pubTileImg} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5' }}>
-              <i className="ti ti-upload" aria-hidden="true" style={{ fontSize: 18, color: '#ccc' }} />
-            </div>
-            <div className={styles.pubTileLbl} style={{ color: '#aaa' }}>
+            <span className={styles.pubAvatar} style={{ background: 'transparent', border: `1px dashed var(--line)`, color: 'var(--grey-lite)' }}>+</span>
+            <span className={styles.pubName} style={{ color: 'var(--grey)' }}>
               {uploading ? 'Uploading…' : 'Upload screenshot'}
-            </div>
+            </span>
           </label>
         </div>
 
@@ -92,12 +94,12 @@ export default function Step2Publisher({ publisher, onPublisher, onBack, onNext,
       </div>
 
       <div className={styles.centre}>
-        <IPhoneFrame>
+        <IPhoneFrame scroll>
           {publisher ? (
             <img
               src={publisher.url}
               alt={publisher.label}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }}
+              style={{ width: '100%', height: 'auto', display: 'block' }}
             />
           ) : (
             <div className={styles.emptyScreen}>
@@ -105,7 +107,7 @@ export default function Step2Publisher({ publisher, onPublisher, onBack, onNext,
             </div>
           )}
         </IPhoneFrame>
-        <p className={styles.centreHint}>{publisher ? publisher.label : 'No publisher selected'}</p>
+        <p className={styles.centreHint}>{publisher ? publisher.label + ' · scroll to preview' : 'No publisher selected'}</p>
       </div>
 
     </div>

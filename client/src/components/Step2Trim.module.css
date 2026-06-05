@@ -24,8 +24,8 @@
 .timestamps {
   display: flex;
   align-items: stretch;
-  background: #f7f7f7;
-  border: 1px solid #ebebeb;
+  background: var(--stage);
+  border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -42,21 +42,21 @@
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #bbb;
+  color: var(--label);
   font-weight: 600;
 }
 
 .tsVal {
   font-size: 13px;
   font-weight: 600;
-  color: #111;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
 .tsSep {
   width: 1px;
-  background: #ebebeb;
+  background: var(--line);
   flex-shrink: 0;
 }
 
@@ -173,11 +173,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #f5f5f5;
-  border: 1px solid #e8e8e8;
+  background: var(--stage);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 9px 14px;
-  color: #333;
+  color: var(--ink-soft);
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
@@ -186,8 +186,8 @@
   transition: background 0.12s, border-color 0.12s;
 }
 .playBtn:hover {
-  background: #ebebeb;
-  border-color: #d8d8d8;
+  background: var(--line-soft);
+  border-color: var(--grey-lite);
 }
 
 .playIconWrap {
@@ -205,13 +205,13 @@
 /* Instruction paragraph below info box */
 .instructionText {
   font-size: 11px;
-  color: #888;
+  color: var(--grey);
   line-height: 1.65;
   margin: 0;
 }
 
 .instructionText strong {
-  color: #555;
+  color: var(--ink-soft);
   font-weight: 600;
 }
 

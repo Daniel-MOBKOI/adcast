@@ -14,6 +14,7 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [videoUrl, setVideoUrl] = useState(null);
   const pollRef = useRef(null);
   const startedRef = useRef(false);
 
@@ -67,6 +68,16 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
   const isError = status === 'error';
   const isWorking = status === 'uploading' || status === 'processing';
 
+  // Fetch the finished MP4 for in-frame preview once the job completes.
+  useEffect(() => {
+    if (!isDone || !jobId) return;
+    let url;
+    downloadJob(jobId)
+      .then(blob => { url = URL.createObjectURL(blob); setVideoUrl(url); })
+      .catch(() => {}); // silent — download button still works
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [isDone, jobId]);
+
   useEffect(() => {
     onNav?.({
       canBack: !isWorking, backLabel: 'Back', onBack,
@@ -84,12 +95,12 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
       <div className={styles.sidebar}>
 
         <div className={styles.fieldGroup}>
-          <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Output settings</div>
+          <div className={styles.fieldLabel} style={{ marginBottom: 8 }}>Export summary</div>
           <div className={styles.metaList}>
             <div className={styles.metaRow}><span className={styles.metaKey}>Format</span><span className={styles.metaVal}>H.264 MP4</span></div>
             <div className={styles.metaRow}><span className={styles.metaKey}>Resolution</span><span className={styles.metaVal}>1080 × 2342</span></div>
             <div className={styles.metaRow}><span className={styles.metaKey}>Frame rate</span><span className={styles.metaVal}>30 fps</span></div>
-            <div className={styles.metaRow}><span className={styles.metaKey}>Ad duration</span><span className={styles.metaVal}>{fmtTime(clipDuration)}</span></div>
+            <div className={styles.metaRow}><span className={styles.metaKey}>Trimmed length</span><span className={styles.metaVal}>{fmtTime(clipDuration)}</span></div>
             <div className={styles.metaRow}><span className={styles.metaKey}>Publisher</span><span className={styles.metaVal} style={{ maxWidth: 120, textAlign: 'right' }}>{publisher?.label}</span></div>
           </div>
         </div>
@@ -140,11 +151,19 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
             </div>
           )}
           {isDone && (
-            <div className={styles.doneScreen}>
-              <div className={styles.doneBadge}>Ready</div>
-              <i className="ti ti-player-play" aria-hidden="true" style={{ fontSize: 28, color: 'rgba(255,255,255,0.5)' }} />
-              <div className={styles.doneMeta}>1080 × 2342 · H.264<br />{fmtTime(clipDuration + 8)} · 30fps</div>
-            </div>
+            videoUrl
+              ? <video
+                  src={videoUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                />
+              : <div className={styles.doneScreen}>
+                  <div className={styles.doneBadge}>Ready</div>
+                  <div className={styles.procLabel}>Loading preview…</div>
+                </div>
           )}
           {isError && (
             <div className={styles.errScreen}>
@@ -162,7 +181,7 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
         </IPhoneFrame>
         <p className={styles.centreHint}>
           {isWorking && 'Scroll-in → hold → scroll-out'}
-          {isDone && 'Your MP4 is ready to download.'}
+          {isDone && 'Your MP4 is ready — playing in the frame above.'}
           {isError && 'Something went wrong — try again.'}
         </p>
       </div>
