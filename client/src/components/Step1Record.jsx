@@ -320,7 +320,7 @@ export default function Step1Record({ onRecordingDone }) {
             hit <strong>Open recorder</strong> to capture your session in a clean full-screen view.
           </div>
           {error && <p className={styles.errorMsg}>{error}</p>}
-          <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ marginTop: 'auto' }}>
             <button
               className={styles.btnPrimary}
               style={{ width: '100%', justifyContent: 'center' }}
@@ -329,6 +329,7 @@ export default function Step1Record({ onRecordingDone }) {
             >
               ● Open recorder
             </button>
+            {/* Phase 2 — Record on mobile (hidden until mobile flow is complete)
             <button
               className={styles.btnSecondary}
               style={{ width: '100%', justifyContent: 'center' }}
@@ -337,6 +338,7 @@ export default function Step1Record({ onRecordingDone }) {
             >
               {mobileLoading ? 'Generating…' : '📱 Record on mobile'}
             </button>
+            */}
           </div>
         </div>
 
