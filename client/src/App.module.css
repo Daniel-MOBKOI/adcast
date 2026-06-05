@@ -1,48 +1,22 @@
+/* Full-bleed app chrome: top bar / working area / bottom bar.
+   Replaces the old centered rounded card + pageHeader. */
 .app {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f5f5f5;
+  background: var(--panel);
+  overflow: hidden;
 }
 
-.pageHeader {
-  max-width: 1100px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 24px 32px 16px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  box-sizing: border-box;
-}
-
-.title { font-size: 20px; font-weight: 700; color: #0a0a0a; margin-bottom: 3px; }
-.sub   { font-size: 13px; color: #888; }
-
-.card {
-  max-width: 1100px;
-  width: 100%;
-  margin: 0 auto 32px;
-  padding: 0 32px;
-  box-sizing: border-box;
+.main {
   flex: 1;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
 
-/*
-  White card shell — border-radius and border only, NO overflow:hidden.
-  overflow:hidden on a containing block clips position:fixed children
-  (lightbox, modals) in Chrome/Safari. The step components handle their
-  own internal overflow via StepLayout.
-*/
-.card > * {
-  background: #fff;
-  border: 1px solid #ebebeb;
-  border-radius: 12px;
+/* The active step's .layout grid stretches to fill the working area. */
+.main > * {
   flex: 1;
-  min-height: 600px;
-  max-height: calc(100vh - 180px);
-  /* overflow:hidden intentionally removed — do not add back */
+  min-height: 0;
 }

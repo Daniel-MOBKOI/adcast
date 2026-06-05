@@ -3,7 +3,7 @@ import { getPublishers, uploadPublisher } from '../api.js';
 import IPhoneFrame from './IPhoneFrame.jsx';
 import styles from './StepLayout.module.css';
 
-export default function Step2Publisher({ publisher, onPublisher, onBack, onNext }) {
+export default function Step2Publisher({ publisher, onPublisher, onBack, onNext, onNav }) {
   const [publishers, setPublishers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -27,6 +27,13 @@ export default function Step2Publisher({ publisher, onPublisher, onBack, onNext 
     }
     setUploading(false);
   }
+
+  useEffect(() => {
+    onNav?.({
+      canBack: true, backLabel: 'Back', onBack,
+      canNext: !!publisher, nextLabel: 'Continue', onNext,
+    });
+  }, [publisher, onNav, onBack, onNext]);
 
   return (
     <div className={styles.layout}>
@@ -101,12 +108,6 @@ export default function Step2Publisher({ publisher, onPublisher, onBack, onNext 
         <p className={styles.centreHint}>{publisher ? publisher.label : 'No publisher selected'}</p>
       </div>
 
-      <div className={styles.navBar}>
-        <button className={styles.btnSecondary} onClick={onBack}>← Back</button>
-        <button className={styles.btnPrimary} onClick={onNext} disabled={!publisher}>
-          Next step →
-        </button>
-      </div>
     </div>
   );
 }

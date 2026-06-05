@@ -215,7 +215,7 @@ function QRModal({ token, onClipReady, onClose }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-export default function Step1Record({ onRecordingDone }) {
+export default function Step1Record({ onRecordingDone, onNav }) {
   const [celtraUrl, setCeltraUrl]       = useState('');
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [cropRect, setCropRect]         = useState(null);
@@ -243,6 +243,12 @@ export default function Step1Record({ onRecordingDone }) {
       onRecordingDone(blob, duration, cropRect);
     }
   }, [state, blob]);
+
+  // Forward happens automatically when recording completes — the footer's
+  // primary button stays disabled until then.
+  useEffect(() => {
+    onNav?.({ canBack: false, canNext: false, nextLabel: 'Record to continue' });
+  }, [onNav]);
 
   function handleReload() {
     const u = celtraUrl;
@@ -378,10 +384,6 @@ export default function Step1Record({ onRecordingDone }) {
           </p>
         </div>
 
-        <div className={styles.navBar}>
-          <span className={styles.navHint}>Step 1 of 4</span>
-          <button className={styles.btnPrimary} disabled>Record to continue →</button>
-        </div>
       </div>
 
       {lightboxOpen && recordUrl && (

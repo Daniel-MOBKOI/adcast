@@ -35,7 +35,7 @@ async function extractThumbs(url, duration, count) {
   return thumbs;
 }
 
-export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBack }) {
+export default function Step2Trim({ blob, duration, cropRect, onConfirm, onBack, onNav }) {
   const videoRef  = useRef(null);
   const trackRef  = useRef(null);
 
@@ -82,6 +82,16 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
     v.addEventListener('timeupdate', check);
     return () => v.removeEventListener('timeupdate', check);
   }, [trimStart, trimEnd]);
+
+  // Report footer nav (validity tracks the trim length).
+  useEffect(() => {
+    const tooShort = (trimEnd - trimStart) < GOOD_MIN;
+    onNav?.({
+      canBack: true, backLabel: 'Back', onBack,
+      canNext: !tooShort, nextLabel: 'Use this clip',
+      onNext: () => onConfirm(trimStart, trimEnd),
+    });
+  }, [trimStart, trimEnd, onNav, onBack, onConfirm]);
 
   function getPct(t)    { return (t / duration) * 100; }
   function pctToTime(p) { return Math.max(0, Math.min(duration, (p / 100) * duration)); }
@@ -192,10 +202,6 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
           and the <strong>Out</strong> handle to trim the end if needed.
         </p>
 
-        <button className={layoutStyles.btnSecondary} onClick={onReRecord}
-          style={{ width: '100%', justifyContent: 'center', marginTop: 'auto' }}>
-          ↩ Re-record
-        </button>
 
       </div>
 
@@ -216,12 +222,6 @@ export default function Step2Trim({ blob, duration, onConfirm, onReRecord, onBac
         </p>
       </div>
 
-      <div className={layoutStyles.navBar}>
-        <button className={layoutStyles.btnSecondary} onClick={onBack}>← Back</button>
-        <button className={layoutStyles.btnPrimary} onClick={() => onConfirm(trimStart, trimEnd)} disabled={isTooShort}>
-          Use this clip →
-        </button>
-      </div>
 
     </div>
   );

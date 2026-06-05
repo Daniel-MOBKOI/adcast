@@ -9,7 +9,7 @@ function fmtTime(s) {
   return m + ':' + String(s % 60).padStart(2, '0');
 }
 
-export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, clipTrimEnd, publisher, jobId, onJobId, onBack, onNew }) {
+export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, clipTrimEnd, cropRect, publisher, jobId, onJobId, onBack, onNew, onNav }) {
   const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
@@ -66,6 +66,18 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
   const isDone = status === 'done';
   const isError = status === 'error';
   const isWorking = status === 'uploading' || status === 'processing';
+
+  useEffect(() => {
+    onNav?.({
+      canBack: !isWorking, backLabel: 'Back', onBack,
+      canNext: isDone && !!jobId,
+      nextLabel: isDone ? '↓ Download MP4'
+        : isWorking ? `Rendering… ${Math.round(progress)}%`
+        : isError ? 'Failed' : 'Preparing…',
+      onNext: handleDownload,
+      arrow: false,
+    });
+  }, [status, jobId, progress, onNav, onBack]);
 
   return (
     <div className={styles.layout}>
@@ -155,13 +167,6 @@ export default function Step4Export({ clipBlob, clipDuration, clipTrimStart, cli
         </p>
       </div>
 
-      <div className={styles.navBar}>
-        <button className={styles.btnSecondary} onClick={onBack} disabled={isWorking}>← Back</button>
-        {isDone && jobId
-          ? <button onClick={handleDownload} className={styles.btnPrimary}>↓ Download MP4</button>
-          : <button className={styles.btnPrimary} disabled>{isWorking ? `Rendering… ${Math.round(progress)}%` : isError ? 'Failed' : 'Preparing…'}</button>
-        }
-      </div>
     </div>
   );
 }
